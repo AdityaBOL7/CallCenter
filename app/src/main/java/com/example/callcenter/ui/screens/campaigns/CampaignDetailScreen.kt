@@ -39,8 +39,7 @@ import com.example.callcenter.ui.components.PageHeader
 import com.example.callcenter.ui.components.ScreenContainer
 import com.example.callcenter.ui.components.SectionHeader
 import com.example.callcenter.ui.theme.AccentMint
-import com.example.callcenter.ui.theme.Ink100
-import com.example.callcenter.ui.theme.Ink500
+import com.example.callcenter.ui.theme.AppColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -81,20 +80,20 @@ fun CampaignDetailScreen(
                 ) {
                     AppCard {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(c!!.description, color = Ink500)
+                            Text(c!!.description, color = AppColor.ink500)
                             Spacer(Modifier.size(6.dp))
                             LinearProgressIndicator(
                                 progress = { c!!.progress },
                                 color = AccentMint,
-                                trackColor = Ink100,
+                                trackColor = AppColor.ink100,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(8.dp)
                                     .clip(RoundedCornerShape(999.dp)),
                             )
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("${c!!.contactedLeads}/${c!!.totalLeads} contacted", color = Ink500, fontSize = 12.sp)
-                                Text("${(c!!.progress * 100).toInt()}%", color = Ink500, fontSize = 12.sp)
+                                Text("${c!!.contactedLeads}/${c!!.totalLeads} contacted", color = AppColor.ink500, fontSize = 12.sp)
+                                Text("${(c!!.progress * 100).toInt()}%", color = AppColor.ink500, fontSize = 12.sp)
                             }
                         }
                     }

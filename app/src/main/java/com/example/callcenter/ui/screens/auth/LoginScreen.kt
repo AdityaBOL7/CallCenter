@@ -24,45 +24,43 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.RemoveRedEye
+import androidx.compose.material.icons.outlined.Password
+import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.HourglassEmpty
-import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.AppGradients
 import com.example.callcenter.ui.theme.Brand50
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
-import com.example.callcenter.ui.theme.Ink400
-import com.example.callcenter.ui.theme.Ink50
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.OrbIndigo
 import com.example.callcenter.ui.theme.OrbPink
 import com.example.callcenter.ui.theme.OrbSky
@@ -72,7 +70,7 @@ import com.example.callcenter.ui.theme.Success
 @Composable
 fun LoginScreen(
     onAuthenticated: () -> Unit,
-    onForgotPassword: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onForgotPassword: () -> Unit = {},
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -82,7 +80,7 @@ fun LoginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF7F8FE)),
+            .background(AppColor.bg),
     ) {
         // Floating orbs (decorative background)
         FloatingOrb(220.dp, OrbIndigo, delayMs = 0L,
@@ -109,25 +107,28 @@ fun LoginScreen(
             }
             LoginCard(
                 state = state,
-                onUsername = viewModel::setUsername,
-                onPassword = viewModel::setPassword,
-                onToggleShowPassword = viewModel::toggleShowPassword,
-                onSignIn = { viewModel.signIn(onSuccess = onAuthenticated) },
-                onForgotPassword = onForgotPassword,
+                onMode = viewModel::setMode,
+                onIdentifier = viewModel::setIdentifier,
+                onRememberMe = viewModel::setRememberMe,
+                onOtp = viewModel::setOtp,
+                onSendOtp = viewModel::sendOtp,
+                onVerifyOtp = { viewModel.verifyOtp(onSuccess = onAuthenticated) },
+                onResendOtp = viewModel::resendOtp,
+                onChangeIdentifier = viewModel::changeIdentifier,
             )
             Spacer(Modifier.weight(1f))
             if (!keyboardOpen) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Shield, contentDescription = null, tint = Ink400, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Outlined.Shield, contentDescription = null, tint = AppColor.ink400, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(
                         "Secured by 256-bit encryption",
-                        color = Ink400,
+                        color = AppColor.ink400,
                         fontSize = 11.sp,
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("v1.0.0", color = Ink400, fontSize = 11.sp)
+                Text("v1.0.0", color = AppColor.ink400, fontSize = 11.sp)
                 Spacer(Modifier.height(16.dp))
             }
         }
@@ -146,16 +147,16 @@ private fun BrandMark() {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Rounded.Phone,
+                Icons.Outlined.Phone,
                 contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier.size(28.dp),
             )
         }
         Spacer(Modifier.height(12.dp))
-        Text("Agent Dialer", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Ink900)
+        Text("Agent Dialer", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AppColor.ink900)
         Spacer(Modifier.height(2.dp))
-        Text("Sign in to start your shift", fontSize = 13.sp, color = Ink500)
+        Text("Sign in to start your shift", fontSize = 13.sp, color = AppColor.ink500)
         Spacer(Modifier.height(10.dp))
         Box(
             modifier = Modifier
@@ -185,74 +186,88 @@ private fun BrandMark() {
 @Composable
 private fun LoginCard(
     state: LoginUiState,
-    onUsername: (String) -> Unit,
-    onPassword: (String) -> Unit,
-    onToggleShowPassword: () -> Unit,
-    onSignIn: () -> Unit,
-    onForgotPassword: () -> Unit,
+    onMode: (LoginMode) -> Unit,
+    onIdentifier: (String) -> Unit,
+    onRememberMe: (Boolean) -> Unit,
+    onOtp: (String) -> Unit,
+    onSendOtp: () -> Unit,
+    onVerifyOtp: () -> Unit,
+    onResendOtp: () -> Unit,
+    onChangeIdentifier: () -> Unit,
 ) {
     androidx.compose.material3.Surface(
         modifier = Modifier
             .fillMaxWidth()
             .shadow(6.dp, RoundedCornerShape(20.dp)),
         shape = RoundedCornerShape(20.dp),
-        color = Color.White,
+        color = AppColor.surface,
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Text("Welcome back", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink900)
+            val isOtpStep = state.step == LoginStep.OTP
+            val isPhone = state.mode == LoginMode.PHONE
+
+            Text(
+                if (isOtpStep) "Enter code" else "Welcome back",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = AppColor.ink900,
+            )
             Spacer(Modifier.height(2.dp))
-            Text("Please enter your credentials", color = Ink500, fontSize = 13.sp)
+            Text(
+                if (isOtpStep) "We sent a 6-character code to verify it's you"
+                else "Sign in with a one-time code",
+                color = AppColor.ink500,
+                fontSize = 13.sp,
+            )
             Spacer(Modifier.height(16.dp))
 
-            FieldLabel("USERNAME")
-            Spacer(Modifier.height(6.dp))
-            OutlinedTextField(
-                value = state.username,
-                onValueChange = onUsername,
-                placeholder = { Text("agent.username", color = Ink400) },
-                leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Brand50,
-                    unfocusedContainerColor = Ink50,
-                    focusedBorderColor = Brand500,
-                    unfocusedBorderColor = Color.Transparent,
-                ),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            )
-            Spacer(Modifier.height(12.dp))
+            if (!isOtpStep) {
+                FieldLabel("LOGIN WITH")
+                Spacer(Modifier.height(6.dp))
+                ModeToggle(mode = state.mode, onMode = onMode)
+                Spacer(Modifier.height(14.dp))
 
-            FieldLabel("PASSWORD")
-            Spacer(Modifier.height(6.dp))
-            OutlinedTextField(
-                value = state.password,
-                onValueChange = onPassword,
-                placeholder = { Text("Enter password", color = Ink400) },
-                leadingIcon = { Icon(Icons.Outlined.Lock, contentDescription = null) },
-                trailingIcon = {
-                    androidx.compose.material3.IconButton(onClick = onToggleShowPassword) {
-                        Icon(
-                            imageVector = if (state.showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.RemoveRedEye,
-                            contentDescription = null,
-                            tint = Ink500,
+                FieldLabel(if (isPhone) "PHONE NUMBER" else "EMAIL ADDRESS")
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = state.identifier,
+                    onValueChange = onIdentifier,
+                    placeholder = {
+                        Text(
+                            if (isPhone) "98765xxxxx" else "you@example.com",
+                            color = AppColor.ink400,
                         )
-                    }
-                },
-                singleLine = true,
-                visualTransformation = if (state.showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Brand50,
-                    unfocusedContainerColor = Ink50,
-                    focusedBorderColor = Brand500,
-                    unfocusedBorderColor = Color.Transparent,
-                ),
-            )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            if (isPhone) Icons.Outlined.Phone else Icons.Outlined.AlternateEmail,
+                            contentDescription = null,
+                        )
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = brandFieldColors(),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = if (isPhone) KeyboardType.Phone else KeyboardType.Email,
+                    ),
+                )
+                Spacer(Modifier.height(8.dp))
+                RememberMeRow(checked = state.rememberMe, onCheckedChange = onRememberMe)
+            } else {
+                FieldLabel("VERIFICATION CODE")
+                Spacer(Modifier.height(10.dp))
+                OtpBoxes(
+                    value = state.otp,
+                    onValueChange = onOtp,
+                    enabled = !state.submitting,
+                )
+            }
 
+            if (state.info != null && state.error == null) {
+                Spacer(Modifier.height(10.dp))
+                InfoBanner(state.info)
+            }
             if (state.error != null) {
                 Spacer(Modifier.height(10.dp))
                 ErrorBanner(state.error)
@@ -260,22 +275,214 @@ private fun LoginCard(
 
             Spacer(Modifier.height(16.dp))
             SignInGradientButton(
-                text = if (state.submitting) "Signing in…" else "Sign in",
+                text = when {
+                    state.submitting && isOtpStep -> "Verifying…"
+                    state.submitting -> "Sending code…"
+                    isOtpStep -> "Verify & sign in"
+                    isPhone -> "Send OTP via SMS"
+                    else -> "Send OTP via Email"
+                },
                 loading = state.submitting,
-                onClick = onSignIn,
+                onClick = if (isOtpStep) onVerifyOtp else onSendOtp,
             )
 
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = "Forgot your password?",
-                color = Brand600,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .clickable { onForgotPassword() },
-            )
+            if (isOtpStep) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = "Change email/phone",
+                        color = AppColor.ink500,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable(enabled = !state.submitting) { onChangeIdentifier() },
+                    )
+                    Text(
+                        text = "Resend code",
+                        color = Brand600,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable(enabled = !state.submitting) { onResendOtp() },
+                    )
+                }
+            }
         }
+    }
+}
+
+/** Segmented Email / Phone switcher, styled like the reference. */
+@Composable
+private fun ModeToggle(mode: LoginMode, onMode: (LoginMode) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(AppColor.surfaceAlt)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ModeTab(
+            label = "Email",
+            icon = Icons.Outlined.AlternateEmail,
+            selected = mode == LoginMode.EMAIL,
+            onClick = { onMode(LoginMode.EMAIL) },
+            modifier = Modifier.weight(1f),
+        )
+        ModeTab(
+            label = "Phone",
+            icon = Icons.Outlined.Phone,
+            selected = mode == LoginMode.PHONE,
+            onClick = { onMode(LoginMode.PHONE) },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun ModeTab(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(11.dp))
+            // Selected tab gets a solid brand fill so it reads as clearly selected
+            // even on the dark card (a plain surface fill was the same color as the
+            // card behind it and looked unselected).
+            .background(if (selected) Brand600 else Color.Transparent)
+            .clickable { onClick() }
+            .padding(vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (selected) Color.White else AppColor.ink500,
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.size(6.dp))
+        Text(
+            label,
+            color = if (selected) Color.White else AppColor.ink500,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+/** Six individual OTP boxes backed by a single hidden text field. */
+@Composable
+private fun OtpBoxes(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+) {
+    val focusRequester = remember { FocusRequester() }
+    Box {
+        // Invisible field that actually owns the input + keyboard + paste.
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            modifier = Modifier
+                .matchParentSize()
+                .alpha(0f)
+                .focusRequester(focusRequester),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled) { focusRequester.requestFocus() },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            repeat(OTP_LENGTH) { i ->
+                val char = value.getOrNull(i)?.uppercaseChar()?.toString() ?: ""
+                val filled = char.isNotEmpty()
+                val active = i == value.length
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (filled) Brand50 else AppColor.ink50)
+                        .border(
+                            width = if (active) 2.dp else 1.dp,
+                            color = if (active || filled) Brand500 else Color.Transparent,
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .clickable(enabled = enabled) { focusRequester.requestFocus() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        char,
+                        color = AppColor.ink900,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+}
+
+@Composable
+private fun RememberMeRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.clickable { onCheckedChange(!checked) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.Checkbox(checked = checked, onCheckedChange = onCheckedChange)
+        Spacer(Modifier.size(4.dp))
+        Text("Remember me", color = AppColor.ink700, fontSize = 13.sp)
+    }
+}
+
+private const val OTP_LENGTH = 6
+
+@Composable
+private fun brandFieldColors() = OutlinedTextFieldDefaults.colors(
+    // Pin the input/cursor/icon colors so the typed text stays readable on the
+    // card in BOTH light and dark mode (default onSurface was too low-contrast
+    // against the dark filled container).
+    focusedTextColor = AppColor.ink900,
+    unfocusedTextColor = AppColor.ink900,
+    // Theme-aware filled container in BOTH states so ink900 text always contrasts
+    // (a light Brand50 fill would wash out the dark-mode text). The focus accent
+    // is carried by the border + cursor instead of the fill color.
+    focusedContainerColor = AppColor.surfaceAlt,
+    unfocusedContainerColor = AppColor.surfaceAlt,
+    cursorColor = Brand500,
+    focusedLeadingIconColor = Brand600,
+    unfocusedLeadingIconColor = AppColor.ink500,
+    focusedPlaceholderColor = AppColor.ink400,
+    unfocusedPlaceholderColor = AppColor.ink400,
+    focusedBorderColor = Brand500,
+    unfocusedBorderColor = AppColor.ink200,
+)
+
+@Composable
+private fun InfoBanner(message: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFFECFDF5))
+            .border(1.dp, Color(0xFFA7F3D0), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp))
+        Spacer(Modifier.size(8.dp))
+        Text(message, color = Color(0xFF047857), fontSize = 13.sp)
     }
 }
 
@@ -283,7 +490,7 @@ private fun LoginCard(
 private fun FieldLabel(text: String) {
     Text(
         text = text,
-        color = Ink500,
+        color = AppColor.ink500,
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 0.8.sp,

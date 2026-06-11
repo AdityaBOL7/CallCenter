@@ -53,13 +53,10 @@ import com.example.callcenter.ui.components.EmptyState
 import com.example.callcenter.ui.components.GradientHeader
 import com.example.callcenter.ui.components.LoadingState
 import com.example.callcenter.ui.components.SearchInput
-import com.example.callcenter.ui.theme.AppBg
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand50
 import com.example.callcenter.ui.theme.Brand600
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink700
-import com.example.callcenter.ui.theme.Ink900
 
 private enum class PickerKind { Status, Campaign, Sort }
 
@@ -79,7 +76,7 @@ fun LeadListScreen(
 
     Box(Modifier
         .fillMaxSize()
-        .background(AppBg)) {
+        .background(AppColor.bg)) {
         Column(Modifier.fillMaxSize()) {
             GradientHeader(
                 title = "My Leads",
@@ -111,6 +108,10 @@ fun LeadListScreen(
             )
             when {
                 state.loading -> LoadingState()
+                state.leads.isEmpty() && state.error != null -> EmptyState(
+                    title = "Couldn't load leads",
+                    description = state.error!!,
+                )
                 state.leads.isEmpty() -> EmptyState(
                     title = "No leads match",
                     description = "Try clearing filters or your search.",
@@ -234,7 +235,7 @@ private fun FilterDropdown(
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             label,
-            color = Ink500,
+            color = AppColor.ink500,
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.8.sp,
@@ -250,17 +251,17 @@ private fun FilterDropdown(
                 .padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = Ink500, modifier = Modifier.size(14.dp))
+            Icon(icon, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(14.dp))
             Spacer(Modifier.size(6.dp))
             Text(
                 value,
-                color = Ink900,
+                color = AppColor.ink900,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 modifier = Modifier.weight(1f),
             )
-            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = Ink500, modifier = Modifier.size(16.dp))
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -324,11 +325,11 @@ private fun PickerSheet(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Ink900)
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = AppColor.ink900)
             Icon(
                 imageVector = Icons.Outlined.Close,
                 contentDescription = "Close",
-                tint = Ink700,
+                tint = AppColor.ink700,
                 modifier = Modifier
                     .size(22.dp)
                     .clickable { onClose() },
@@ -357,7 +358,7 @@ private fun PickerRow(
     ) {
         Text(
             label,
-            color = if (selected) Brand600 else Ink900,
+            color = if (selected) Brand600 else AppColor.ink900,
             fontSize = 14.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.weight(1f),

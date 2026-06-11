@@ -5,6 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 private val LightColors = lightColorScheme(
@@ -58,10 +59,23 @@ fun CallCenterTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = AppTypography,
-        shapes = AppShapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalAppColors provides appColorsFor(darkTheme)) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColors else LightColors,
+            typography = AppTypography,
+            shapes = AppShapes,
+            content = content,
+        )
+    }
+}
+
+/**
+ * Resolve the persisted theme preference ("system" | "light" | "dark") to a
+ * dark/light boolean, falling back to the system setting for "system".
+ */
+@Composable
+fun resolveDarkTheme(themeOverride: String): Boolean = when (themeOverride) {
+    "dark" -> true
+    "light" -> false
+    else -> isSystemInDarkTheme()
 }

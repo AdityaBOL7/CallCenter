@@ -5,70 +5,86 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.example.callcenter.data.repository.AgentRepository
-import com.example.callcenter.ui.components.AppButton
-import com.example.callcenter.ui.components.AppButtonSize
+import com.example.callcenter.data.repository.AuthRepository
 import com.example.callcenter.ui.components.AppInput
 import com.example.callcenter.ui.components.PageHeader
 import com.example.callcenter.ui.components.ScreenContainer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 
 @HiltViewModel
 class EditProfileViewModel @Inject constructor(
-    private val agentRepo: AgentRepository,
+    agentRepo: AgentRepository,
+    private val authRepo: AuthRepository,
 ) : ViewModel() {
     val agent = agentRepo.agent
-    fun save(name: String, email: String, onDone: () -> Unit) {
-        viewModelScope.launch {
-            agentRepo.updateProfile(name, email)
-            onDone()
-        }
-    }
+
+    // Extra identity bits from the login response that aren't on the Agent model.
+    val phone: String? get() = authRepo.cachedUser?.phoneNumber
+    val role: String? get() = authRepo.cachedUser?.role
 }
 
+/**
+ * Read-only profile detail view. The dialer backend has no self-update endpoint
+ * (GET me/ only; edits are an admin-side agent update), so fields are display-only.
+ */
 @Composable
 fun EditProfileScreen(
     onBack: () -> Unit,
     viewModel: EditProfileViewModel = hiltViewModel(),
 ) {
     val agent by viewModel.agent.collectAsState()
-    var name by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    LaunchedEffect(agent) {
-        name = agent.name
-        email = agent.email
-    }
     ScreenContainer {
         Column(Modifier.fillMaxSize()) {
-            PageHeader(title = "Edit profile", onBack = onBack)
+            PageHeader(title = "Profile details", onBack = onBack)
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                AppInput(value = name, onValueChange = { name = it }, label = "Name", leadingIcon = Icons.Outlined.Person)
-                AppInput(value = email, onValueChange = { email = it }, label = "Email",
-                    leadingIcon = Icons.Outlined.Email, keyboardType = KeyboardType.Email)
-                AppButton(
-                    text = "Save changes",
-                    onClick = { viewModel.save(name, email, onBack) },
-                    fullWidth = true, size = AppButtonSize.Lg,
+                ReadOnlyField(label = "Name", value = agent?.name, icon = Icons.Outlined.Person)
+                ReadOnlyField(label = "Email", value = agent?.email, icon = Icons.Outlined.Email, keyboard = KeyboardType.Email)
+                ReadOnlyField(label = "Phone", value = viewModel.phone, icon = Icons.Outlined.Phone, keyboard = KeyboardType.Phone)
+                ReadOnlyField(label = "Role", value = viewModel.role, icon = Icons.Outlined.Badge)
+                ReadOnlyField(label = "Extension", value = agent?.extension, icon = Icons.Outlined.Phone)
+                ReadOnlyField(label = "SIP user", value = agent?.sipUsername, icon = Icons.Outlined.AlternateEmail)
+
+                Text(
+                    "These details are managed by your administrator. Contact support to update them.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
         }
     }
+}
+
+@Composable
+private fun ReadOnlyField(
+    label: String,
+    value: String?,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    keyboard: KeyboardType = KeyboardType.Text,
+) {
+    AppInput(
+        value = value?.takeIf { it.isNotBlank() } ?: "—",
+        onValueChange = {},
+        label = label,
+        leadingIcon = icon,
+        keyboardType = keyboard,
+        enabled = false,
+    )
 }

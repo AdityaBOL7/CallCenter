@@ -1,0 +1,901 @@
+{
+  "info": {
+    "_postman_id": "b07d1a1e-d141-4e2e-9b3b-d141efb01b07",
+    "name": "Bol7 Dialer",
+    "description": "Complete API surface for the Bol7 Dialer backend (Django) at https://callcenter.bol7.com. Companion to the Android Integration Guide.\n\n## Variables\n- `base_url` — the dialer backend (default: https://callcenter.bol7.com)\n- `auth_base_url` — AUTH_Services (default: https://testing1.bol7.com/auth2)\n- `access_token` — fill in after running the Auth → Login request (auto-set by the test script there)\n- `refresh_token` — same; also auto-set by Login\n\n## How to start\n1. Open the `Auth (AUTH_Services)` folder.\n2. Fill in your username/password in the Login request body.\n3. Run Login — the `{access, refresh}` tokens are auto-stored into collection variables by the test script.\n4. Everything else now Just Works — Bearer auth uses `{{access_token}}` automatically.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{access_token}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "base_url",      "value": "https://callcenter.bol7.com",       "type": "string" },
+    { "key": "auth_base_url", "value": "https://testing1.bol7.com/auth2",   "type": "string" },
+    { "key": "access_token",  "value": "",                                  "type": "string" },
+    { "key": "refresh_token", "value": "",                                  "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth (AUTH_Services)",
+      "description": "Login + refresh against AUTH_Services. Tokens are auto-stored into collection variables by the test scripts.",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"\",\n  \"password\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{auth_base_url}}/login",
+              "host": ["{{auth_base_url}}"],
+              "path": ["login"]
+            },
+            "description": "Authenticate against AUTH_Services. Fill in username + password in the body. The test script auto-stores `access` and `refresh` into collection variables."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const access  = j.access  || j.access_token  || (j.data && (j.data.access  || j.data.access_token));",
+                  "  const refresh = j.refresh || j.refresh_token || (j.data && (j.data.refresh || j.data.refresh_token));",
+                  "  if (access)  pm.collectionVariables.set('access_token',  access);",
+                  "  if (refresh) pm.collectionVariables.set('refresh_token', refresh);",
+                  "  console.log('Tokens stored.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{auth_base_url}}/refresh",
+              "host": ["{{auth_base_url}}"],
+              "path": ["refresh"]
+            },
+            "description": "Trade refresh token for a new access token. The test script auto-updates `access_token`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  const access = j.access || j.access_token || (j.data && (j.data.access || j.data.access_token));",
+                  "  if (access) pm.collectionVariables.set('access_token', access);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Self / Agent",
+      "description": "Endpoints scoped to the authenticated agent. All require Bearer JWT.",
+      "item": [
+        {
+          "name": "Get profile + SIP block",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/auth/me/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "auth", "me", ""]
+            },
+            "description": "Returns the authenticated agent's profile and the SIP credentials needed to REGISTER the softphone. Stamps `last_seen_at`. Returns 404 if the user has no Agent row."
+          }
+        },
+        {
+          "name": "Register FCM token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<fcm_registration_token>\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/auth/fcm-token/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "auth", "fcm-token", ""]
+            },
+            "description": "Register or rotate the device's FCM token. Call on login and on every Firebase onNewToken() callback."
+          }
+        },
+        {
+          "name": "Change status",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ready\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/auth/me/status/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "auth", "me", "status", ""]
+            },
+            "description": "Change presence status. Valid values: ready | busy | break | offline. Closes the prior status-history interval and opens a new one. RPDP push fires only when status=ready."
+          }
+        },
+        {
+          "name": "Status history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/auth/me/status-history/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "auth", "me", "status-history", ""]
+            },
+            "description": "Last 50 status intervals for reporting 'time in each status'."
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/auth/logout/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "auth", "logout", ""]
+            },
+            "description": "Clears the FCM token, closes the current status interval, sets status=offline. The JWT itself remains valid (invalidate it via AUTH_Services if needed)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agents (admin)",
+      "description": "Agent provisioning. All endpoints require role=admin|staff|owner in the JWT; regular agents receive 403.",
+      "item": [
+        {
+          "name": "List agents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/agents/?search=&status=&is_active=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "agents", ""],
+              "query": [
+                { "key": "search",    "value": "" },
+                { "key": "status",    "value": "" },
+                { "key": "is_active", "value": "true" },
+                { "key": "tenant_id", "value": "", "disabled": true }
+              ]
+            },
+            "description": "List all agents. Filters: search (name/email substring), status, is_active, tenant_id."
+          }
+        },
+        {
+          "name": "Create agent (provisions in RPDP too)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"auth_user_id\": \"<auth_services_user_uuid>\",\n  \"display_name\": \"<full name>\",\n  \"email\": \"<email>\",\n  \"sip_username\": \"<sip_username>\",\n  \"sip_password\": \"<sip_password>\",\n  \"sip_domain\": \"indiavoice.rpdigitalphone.com\",\n  \"caller_id_number\": \"917935486379\",\n  \"mobile_number\": \"+91XXXXXXXXXX\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/agents/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "agents", ""]
+            },
+            "description": "Creates an Agent locally AND triggers a best-effort RPDP addmember_v2 to provision the agent on the carrier side. If RPDP fails, the local Agent row is still created — admin can resync later."
+          }
+        },
+        {
+          "name": "Retrieve agent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/agents/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "agents", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Update agent",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"display_name\": \"<new name>\",\n  \"sip_username\": \"<sip_username>\",\n  \"sip_password\": \"<sip_password — only if rotating>\",\n  \"caller_id_number\": \"917935486379\",\n  \"mobile_number\": \"+91XXXXXXXXXX\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/agents/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "agents", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Partial update. sip_password is only changed when provided; omit to leave unchanged."
+          }
+        },
+        {
+          "name": "Soft-delete agent",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/agents/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "agents", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Sets is_active=false, status=offline; also calls RPDP deletemember_v2 if rpdp_member_id is set. Row preserved for FK integrity with historical Calls/Callbacks."
+          }
+        },
+        {
+          "name": "Resync RPDP member",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/agents/:id/resync-rpdp/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "agents", ":id", "resync-rpdp", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Retry the RPDP addmember_v2 call. Useful when initial creation succeeded locally but RPDP rejected (plan limit, network blip, etc.). Returns 502 if RPDP still fails."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Calls",
+      "description": "Begin/update/end a call. Path B model: backend records metadata; your Android softphone handles SIP audio directly with RPDP.",
+      "item": [
+        {
+          "name": "Start a call",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead_id\": 1,\n  \"to_number\": \"+91XXXXXXXXXX\",\n  \"direction\": \"outbound\",\n  \"note\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/calls/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "calls", ""]
+            },
+            "description": "Creates a Call row in `initiating` status. Either lead_id or to_number must be present. Returns the new id + an rpdp_uid correlation token."
+          }
+        },
+        {
+          "name": "List call history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/calls/?direction=&status=&from=&to=&search=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "calls", ""],
+              "query": [
+                { "key": "lead_id",          "value": "", "disabled": true },
+                { "key": "direction",        "value": ""  },
+                { "key": "status",           "value": ""  },
+                { "key": "from",             "value": ""  },
+                { "key": "to",               "value": ""  },
+                { "key": "search",           "value": ""  }
+              ]
+            },
+            "description": "List the agent's own call history (or all if admin). Capped at 200 rows."
+          }
+        },
+        {
+          "name": "Live calls",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/calls/live/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "calls", "live", ""]
+            },
+            "description": "Calls currently in initiating | ringing | connected for the authenticated agent."
+          }
+        },
+        {
+          "name": "Retrieve call",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/calls/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "calls", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "In-call update (mute/hold/status/note)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"connected\",\n  \"is_muted\": false,\n  \"is_on_hold\": false,\n  \"is_recorded\": false,\n  \"note\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/calls/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "calls", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Reflect SIP state transitions and in-call UI toggles. Stamps `answered_at` the first time you PATCH to status=connected."
+          }
+        },
+        {
+          "name": "Hangup (disposition + note)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"disposition\": \"interested\",\n  \"note\": \"Will call back tomorrow\",\n  \"status\": \"completed\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/calls/:id/hangup/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "calls", ":id", "hangup", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Final hangup. Stamps ended_at, computes duration_seconds. Auto-updates the linked Lead's status based on the disposition."
+          }
+        },
+        {
+          "name": "Delete call (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/calls/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "calls", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Hard delete. Admin role required. Rarely needed."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leads",
+      "description": "Lead CRUD + assignment + bulk import.",
+      "item": [
+        {
+          "name": "List leads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/?status=&priority=&search=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", ""],
+              "query": [
+                { "key": "status",             "value": "" },
+                { "key": "priority",           "value": "" },
+                { "key": "campaign_id",        "value": "", "disabled": true },
+                { "key": "assigned_agent_id",  "value": "", "disabled": true },
+                { "key": "search",             "value": "" },
+                { "key": "tenant_id",          "value": "", "disabled": true }
+              ]
+            },
+            "description": "Agents see leads assigned to them OR unassigned. Admins see all. Use `?assigned_agent_id=null` for the unassigned pool."
+          }
+        },
+        {
+          "name": "Create lead (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"<full name>\",\n  \"phone\": \"+91XXXXXXXXXX\",\n  \"email\": \"<email>\",\n  \"status\": \"new\",\n  \"priority\": \"medium\",\n  \"campaign\": null,\n  \"assigned_agent\": null,\n  \"tags\": [],\n  \"notes\": \"\",\n  \"source\": \"\",\n  \"extra\": {}\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve lead",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Update lead",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"contacted\",\n  \"priority\": \"high\",\n  \"notes\": \"Follow up next week\",\n  \"tags\": [\"warm-lead\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Agents can only edit leads assigned to them (or unassigned)."
+          }
+        },
+        {
+          "name": "Delete lead (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Assign / self-claim",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/:id/assign/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", ":id", "assign", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Agents can self-claim (agent_id=themselves) or self-unassign (agent_id=null). Admins can assign to anyone."
+          }
+        },
+        {
+          "name": "Bulk import (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tenant_id\": \"\",\n  \"leads\": [\n    {\n      \"name\": \"<name 1>\",\n      \"phone\": \"+91XXXXXXXXXX\",\n      \"email\": \"<email>\",\n      \"campaign_id\": null,\n      \"priority\": \"medium\",\n      \"status\": \"new\",\n      \"tags\": [],\n      \"source\": \"\",\n      \"notes\": \"\"\n    },\n    {\n      \"name\": \"<name 2>\",\n      \"phone\": \"+91XXXXXXXXXX\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/import/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", "import", ""]
+            },
+            "description": "JSON bulk import. Dedupes by (tenant_id, phone) — existing rows are skipped, not updated. Returns {created, skipped, skipped_details}."
+          }
+        },
+        {
+          "name": "Calls for this lead",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/leads/:id/calls/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "leads", ":id", "calls", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Up to 100 most recent calls for this lead."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Callbacks",
+      "description": "Callback scheduling. Auto-mirrors scheduled_at onto Lead.next_callback_at and creates an in-app Notification.",
+      "item": [
+        {
+          "name": "List callbacks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/callbacks/?status=&from=&to=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "callbacks", ""],
+              "query": [
+                { "key": "status",   "value": ""  },
+                { "key": "agent_id", "value": "", "disabled": true },
+                { "key": "lead_id",  "value": "", "disabled": true },
+                { "key": "from",     "value": ""  },
+                { "key": "to",       "value": ""  }
+              ]
+            },
+            "description": "Agent-scoped unless admin. Filters: status, agent_id (admin only), lead_id, from/to date range."
+          }
+        },
+        {
+          "name": "Schedule callback",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lead\": 1,\n  \"scheduled_at\": \"2026-05-23T10:00:00Z\",\n  \"note\": \"Call before noon\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/callbacks/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "callbacks", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve callback",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/callbacks/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "callbacks", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Update / reschedule",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduled_at\": \"2026-05-23T14:00:00Z\",\n  \"note\": \"Moved to afternoon\",\n  \"status\": \"pending\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/callbacks/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "callbacks", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Cancel callback (soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/callbacks/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "callbacks", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Soft-cancel. Sets status=cancelled; the row isn't removed."
+          }
+        },
+        {
+          "name": "Mark complete",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"call_id\": 1,\n  \"note\": \"Connected successfully\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/callbacks/:id/complete/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "callbacks", ":id", "complete", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Mark complete + optionally link the call that resolved it. The note is appended to the existing one."
+          }
+        },
+        {
+          "name": "Due in N minutes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/callbacks/due/?minutes=30",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "callbacks", "due", ""],
+              "query": [{ "key": "minutes", "value": "30" }]
+            },
+            "description": "Pending callbacks scheduled within the next N minutes. Default 30."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Campaigns",
+      "item": [
+        {
+          "name": "List campaigns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/campaigns/?status=&search=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "campaigns", ""],
+              "query": [
+                { "key": "status",    "value": "" },
+                { "key": "search",    "value": "" },
+                { "key": "tenant_id", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create campaign (admin)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"<campaign name>\",\n  \"description\": \"\",\n  \"status\": \"draft\",\n  \"start_date\": null,\n  \"end_date\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/campaigns/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "campaigns", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve campaign",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/campaigns/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "campaigns", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Update campaign (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/campaigns/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "campaigns", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Delete campaign (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/campaigns/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "campaigns", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Refresh stats (admin)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/campaigns/:id/refresh-stats/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "campaigns", ":id", "refresh-stats", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            },
+            "description": "Recomputes target_count, contacted_count, conversion_count from the Lead table. Useful after a bulk import."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "In-app inbox + push token. FCM pushes auto-fire when these rows are created.",
+      "item": [
+        {
+          "name": "List notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/notifications/?kind=&unread=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "notifications", ""],
+              "query": [
+                { "key": "kind",   "value": "" },
+                { "key": "unread", "value": "" }
+              ]
+            },
+            "description": "Filters: kind (call|lead|callback|campaign|system), unread=1 to show only unread."
+          }
+        },
+        {
+          "name": "Unread count (badge)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/notifications/unread-count/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "notifications", "unread-count", ""]
+            }
+          }
+        },
+        {
+          "name": "Retrieve notification",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/notifications/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "notifications", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Mark single read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/notifications/:id/read/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "notifications", ":id", "read", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Mark all read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/notifications/mark-all-read/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "notifications", "mark-all-read", ""]
+            }
+          }
+        },
+        {
+          "name": "Dismiss",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/notifications/:id/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "notifications", ":id", ""],
+              "variable": [{ "key": "id", "value": "1" }]
+            }
+          }
+        },
+        {
+          "name": "Test push (admin diagnostic)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_id\": 1,\n  \"title\": \"Test push\",\n  \"body\": \"If you see this, FCM is wired up.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/dialer/notifications/test-push/",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "notifications", "test-push", ""]
+            },
+            "description": "Admin diagnostic. Creates a Notification row + synchronously fires an FCM push. Returns the FCM result ({sent, reason}) so misconfigurations surface immediately."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dispositions",
+      "item": [
+        {
+          "name": "List dispositions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/dispositions/?tenant_id=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "dispositions", ""],
+              "query": [{ "key": "tenant_id", "value": "" }]
+            },
+            "description": "Active disposition codes for the agent's tenant (tenant rows override global). Use to populate the disposition picker at hangup."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhooks (informational only)",
+      "description": "RPDP fires this endpoint server-to-server. Your Android app should NEVER call it. Listed here only so the contract is visible.",
+      "item": [
+        {
+          "name": "RPDP call-event webhook",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/dialer/webhooks/rpdp/<token>/?type=call_report&SourceNumber=&DestinationNumber=&DialWhomNumber=&CallDuration=&Status=&StartTime=&EndTime=&CallSid=&CallRecordingUrl=&Direction=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "dialer", "webhooks", "rpdp", "<token>", ""],
+              "query": [
+                { "key": "type",             "value": "call_report" },
+                { "key": "SourceNumber",     "value": "" },
+                { "key": "DestinationNumber","value": "" },
+                { "key": "DialWhomNumber",   "value": "" },
+                { "key": "CallDuration",     "value": "" },
+                { "key": "Status",           "value": "" },
+                { "key": "StartTime",        "value": "" },
+                { "key": "EndTime",          "value": "" },
+                { "key": "CallSid",          "value": "" },
+                { "key": "CallRecordingUrl", "value": "" },
+                { "key": "Direction",        "value": "" }
+              ]
+            },
+            "description": "Anonymous, token-gated. RPDP's webhook configuration must include the URL path token. Updates the matching Call row idempotently. Documentation-only — do not call from the app."
+          }
+        }
+      ]
+    }
+  ]
+}

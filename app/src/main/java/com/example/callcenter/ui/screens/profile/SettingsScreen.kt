@@ -31,8 +31,7 @@ import com.example.callcenter.data.prefs.UserPrefs
 import com.example.callcenter.ui.components.PageHeader
 import com.example.callcenter.ui.components.ScreenContainer
 import com.example.callcenter.ui.components.SectionHeader
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
+import com.example.callcenter.ui.theme.AppColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
@@ -46,7 +45,6 @@ class SettingsViewModel @Inject constructor(
     val prefs = appPrefs.prefs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserPrefs())
 
     fun setNotifications(enabled: Boolean) = viewModelScope.launch { appPrefs.setNotificationsEnabled(enabled) }
-    fun setTheme(t: String) = viewModelScope.launch { appPrefs.setTheme(t) }
 }
 
 @Composable
@@ -68,12 +66,6 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                     checked = prefs.notificationsEnabled,
                     onCheckedChange = viewModel::setNotifications,
                 )
-                SectionHeader("Appearance")
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (k, l) ->
-                        ThemePill(label = l, selected = prefs.themeOverride == k, onClick = { viewModel.setTheme(k) }, modifier = Modifier.weight(1f))
-                    }
-                }
             }
         }
     }
@@ -94,35 +86,11 @@ private fun ToggleRow(
     ) {
         Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(label, fontWeight = FontWeight.SemiBold, color = Ink900)
-                Text(description, color = Ink500, fontSize = 12.sp)
+                Text(label, fontWeight = FontWeight.SemiBold, color = AppColor.ink900)
+                Text(description, color = AppColor.ink500, fontSize = 12.sp)
             }
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
 }
 
-@Composable
-private fun ThemePill(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-    Surface(
-        modifier = modifier
-            .padding(0.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = bg,
-        onClick = onClick,
-    ) {
-        androidx.compose.foundation.layout.Box(
-            modifier = Modifier.padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(label, color = fg, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}

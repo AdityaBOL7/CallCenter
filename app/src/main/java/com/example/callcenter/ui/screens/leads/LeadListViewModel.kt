@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class LeadListUiState(
     val leads: List<Lead> = emptyList(),
@@ -29,6 +30,7 @@ data class LeadListUiState(
     val filters: LeadFilters = LeadFilters(),
     val loading: Boolean = true,
     val importOpen: Boolean = false,
+    val error: String? = null,
 )
 
 @OptIn(FlowPreview::class)
@@ -40,6 +42,7 @@ class LeadListViewModel @Inject constructor(
 
     private val _filters = MutableStateFlow(LeadFilters())
     private val _importOpen = MutableStateFlow(false)
+    private val _loading = MutableStateFlow(true)
 
     private val debouncedFilters = _filters.debounce(280).distinctUntilChanged()
 
@@ -48,15 +51,30 @@ class LeadListViewModel @Inject constructor(
         campaignsRepo.observeCampaigns(),
         _filters,
         _importOpen,
-    ) { leads, campaigns, filters, importOpen ->
+        combine(_loading, leadsRepo.error) { loading, error -> loading to error },
+    ) { leads, campaigns, filters, importOpen, (loading, error) ->
         LeadListUiState(
             leads = leads,
             campaigns = campaigns,
             filters = filters,
-            loading = false,
+            loading = loading,
             importOpen = importOpen,
+            error = error,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LeadListUiState())
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _loading.value = true
+            leadsRepo.refresh()
+            _loading.value = false
+        }
+        viewModelScope.launch { campaignsRepo.refresh() }
+    }
 
     fun setSearch(v: String) = _filters.update { it.copy(search = v) }
     fun setStatus(status: LeadStatus?) = _filters.update { it.copy(status = status) }

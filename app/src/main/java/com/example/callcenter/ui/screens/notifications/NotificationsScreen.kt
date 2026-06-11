@@ -46,10 +46,8 @@ import com.example.callcenter.ui.components.GradientHeader
 import com.example.callcenter.ui.components.LoadingState
 import com.example.callcenter.ui.theme.AccentSky
 import com.example.callcenter.ui.theme.AccentViolet
-import com.example.callcenter.ui.theme.AppBg
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Warn
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.format.DateTimeFormatter
@@ -66,7 +64,10 @@ class NotificationsViewModel @Inject constructor(
     private val _state = MutableStateFlow(State())
     val state = _state.asStateFlow()
 
-    init { viewModelScope.launch { repo.observe().collect { _state.value = State(it, false) } } }
+    init {
+        viewModelScope.launch { repo.observe().collect { _state.value = State(it, false) } }
+        viewModelScope.launch { repo.refresh() }
+    }
     fun markAllRead() = viewModelScope.launch { repo.markAllRead() }
     fun markRead(id: Int) = viewModelScope.launch { repo.markRead(id) }
 }
@@ -80,7 +81,7 @@ fun NotificationsScreen(
     val unread = state.items.count { !it.read }
     Box(Modifier
         .fillMaxSize()
-        .background(AppBg)) {
+        .background(AppColor.bg)) {
         Column(Modifier.fillMaxSize()) {
             GradientHeader(
                 title = "Notifications",
@@ -143,9 +144,9 @@ private fun NotificationCard(n: AppNotification, onClick: () -> Unit) {
             }
             Spacer(Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(n.title, fontWeight = FontWeight.SemiBold, color = Ink900, fontSize = 14.sp)
-                Text(n.body, color = Ink500, fontSize = 12.sp)
-                Text(n.createdAt.format(fmt), color = Ink500, fontSize = 11.sp)
+                Text(n.title, fontWeight = FontWeight.SemiBold, color = AppColor.ink900, fontSize = 14.sp)
+                Text(n.body, color = AppColor.ink500, fontSize = 12.sp)
+                Text(n.createdAt.format(fmt), color = AppColor.ink500, fontSize = 11.sp)
             }
             if (!n.read) {
                 Box(modifier = Modifier

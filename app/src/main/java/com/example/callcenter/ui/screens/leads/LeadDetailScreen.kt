@@ -46,9 +46,7 @@ import com.example.callcenter.ui.components.SectionHeader
 import com.example.callcenter.ui.components.StatusBadge
 import com.example.callcenter.ui.components.colorForLeadPriority
 import com.example.callcenter.ui.components.colorForLeadStatus
-import com.example.callcenter.ui.theme.AppBg
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
+import com.example.callcenter.ui.theme.AppColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,13 +91,13 @@ fun LeadDetailScreen(
     val state by viewModel.state.collectAsState()
     Box(Modifier
         .fillMaxSize()
-        .background(AppBg)) {
+        .background(AppColor.bg)) {
         Column(Modifier.fillMaxSize()) {
             GradientHeader(title = "Lead details", onBack = onBack)
             val lead = state.lead
             if (lead == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Lead not found", color = Ink500)
+                    Text("Lead not found", color = AppColor.ink500)
                 }
             } else {
                 Column(
@@ -125,8 +123,8 @@ fun LeadDetailScreen(
                         }
                         Spacer(Modifier.size(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(lead.name, fontWeight = FontWeight.Bold, color = Ink900, fontSize = 18.sp)
-                            Text(lead.phone, color = Ink500)
+                            Text(lead.name, fontWeight = FontWeight.Bold, color = AppColor.ink900, fontSize = 18.sp)
+                            Text(lead.phone, color = AppColor.ink500)
                         }
                         StatusBadge(text = lead.status.label, color = colorForLeadStatus(lead.status))
                     }
@@ -139,7 +137,7 @@ fun LeadDetailScreen(
                     KeyValueRow("Priority", lead.priority.label)
                     if (!lead.notes.isNullOrBlank()) {
                         SectionHeader("Notes")
-                        Text(lead.notes, color = Ink500)
+                        Text(lead.notes, color = AppColor.ink500)
                     }
                     Spacer(Modifier.size(20.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -166,7 +164,7 @@ fun LeadDetailScreen(
 @Composable
 private fun KeyValueRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = Ink500)
-        Text(value, color = Ink900, fontWeight = FontWeight.SemiBold)
+        Text(label, color = AppColor.ink500)
+        Text(value, color = AppColor.ink900, fontWeight = FontWeight.SemiBold)
     }
 }

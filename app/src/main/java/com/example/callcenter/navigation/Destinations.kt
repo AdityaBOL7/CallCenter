@@ -3,7 +3,6 @@ package com.example.callcenter.navigation
 sealed class Dest(val route: String) {
     // Auth
     data object Login : Dest("login")
-    data object ForgotPassword : Dest("forgot")
 
     // Main scaffold host
     data object MainTabs : Dest("main")

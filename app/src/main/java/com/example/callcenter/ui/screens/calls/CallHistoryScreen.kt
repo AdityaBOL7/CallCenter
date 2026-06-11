@@ -55,14 +55,10 @@ import com.example.callcenter.ui.components.EmptyState
 import com.example.callcenter.ui.components.GradientHeader
 import com.example.callcenter.ui.components.LoadingState
 import com.example.callcenter.ui.components.colorForCallStatus
-import com.example.callcenter.ui.theme.AppBg
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
 import com.example.callcenter.ui.theme.Danger
-import com.example.callcenter.ui.theme.Ink200
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink700
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Success
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
@@ -100,6 +96,7 @@ class CallHistoryViewModel @Inject constructor(
                 _state.update { it.copy(calls = list, loading = false) }
             }
         }
+        viewModelScope.launch { callsRepo.refreshHistory() }
     }
 
     fun setRange(r: HistoryRange) = _state.update { it.copy(range = r) }
@@ -116,7 +113,7 @@ fun CallHistoryScreen(viewModel: CallHistoryViewModel = hiltViewModel()) {
 
     Box(Modifier
         .fillMaxSize()
-        .background(AppBg)) {
+        .background(AppColor.bg)) {
         Column(Modifier.fillMaxSize()) {
             GradientHeader(
                 title = "Call History",
@@ -202,12 +199,12 @@ private fun HistoryChip(
     leading: ImageVector? = null,
 ) {
     val bg = if (selected) Brand600 else MaterialTheme.colorScheme.surface
-    val fg = if (selected) Color.White else Ink700
+    val fg = if (selected) Color.White else AppColor.ink700
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
-            .border(1.dp, if (selected) Brand600 else Ink200, RoundedCornerShape(999.dp))
+            .border(1.dp, if (selected) Brand600 else AppColor.ink200, RoundedCornerShape(999.dp))
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -248,8 +245,8 @@ private fun CallHistoryRow(call: Call) {
                 }
                 Spacer(Modifier.size(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(call.leadName, fontWeight = FontWeight.Bold, color = Ink900, fontSize = 15.sp)
-                    Text(call.leadPhone, color = Ink500, fontSize = 12.sp)
+                    Text(call.leadName, fontWeight = FontWeight.Bold, color = AppColor.ink900, fontSize = 15.sp)
+                    Text(call.leadPhone, color = AppColor.ink500, fontSize = 12.sp)
                     if (call.campaignName.isNotBlank()) {
                         Text(call.campaignName, color = Brand500, fontSize = 11.sp)
                     }
@@ -263,7 +260,7 @@ private fun CallHistoryRow(call: Call) {
             Box(modifier = Modifier
                 .fillMaxWidth()
                 .height(1.dp)
-                .background(Ink200))
+                .background(AppColor.ink200))
             Spacer(Modifier.size(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 MetaText(icon = Icons.Outlined.CalendarMonth, text = call.startedAt.format(dateFmt))
@@ -281,15 +278,15 @@ private fun CallHistoryRow(call: Call) {
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                 ) {
-                    Text(call.routeType.name, color = Ink700, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(call.routeType.name, color = AppColor.ink700, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
             if (call.disposition != null) {
                 Spacer(Modifier.size(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = Ink500, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Outlined.BookmarkBorder, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.size(6.dp))
-                    Text(call.disposition.label.lowercase(), color = Ink500, fontSize = 11.sp)
+                    Text(call.disposition.label.lowercase(), color = AppColor.ink500, fontSize = 11.sp)
                 }
             }
         }
@@ -299,9 +296,9 @@ private fun CallHistoryRow(call: Call) {
 @Composable
 private fun MetaText(icon: ImageVector, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = Ink500, modifier = Modifier.size(12.dp))
+        Icon(icon, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(12.dp))
         Spacer(Modifier.size(6.dp))
-        Text(text, color = Ink500, fontSize = 11.sp)
+        Text(text, color = AppColor.ink500, fontSize = 11.sp)
     }
 }
 

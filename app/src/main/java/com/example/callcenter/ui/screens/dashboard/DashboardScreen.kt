@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.WorkOutline
 import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.PhoneInTalk
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -48,23 +47,18 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.callcenter.domain.model.AgentStatus
 import com.example.callcenter.ui.components.SectionHeader
-import com.example.callcenter.ui.components.SlideToAction
 import com.example.callcenter.ui.components.colorForAgentStatus
 import com.example.callcenter.ui.theme.AccentMint
 import com.example.callcenter.ui.theme.AccentRose
 import com.example.callcenter.ui.theme.AccentSky
 import com.example.callcenter.ui.theme.AccentViolet
-import com.example.callcenter.ui.theme.AppBg
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.AppGradients
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
 import com.example.callcenter.ui.theme.Danger
 import com.example.callcenter.ui.theme.Emerald50
 import com.example.callcenter.ui.theme.HeaderShape
-import com.example.callcenter.ui.theme.Ink100
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink700
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Success
 import com.example.callcenter.ui.theme.Warn
 
@@ -77,20 +71,20 @@ fun DashboardScreen(
     onOpenCampaigns: () -> Unit,
     onOpenReports: () -> Unit,
     onOpenSettings: () -> Unit,
-    onCallLead: (leadId: Int, callId: String, route: String) -> Unit,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppBg),
+            .background(AppColor.bg),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             DashboardHero(
                 agentName = state.agent?.name ?: "Agent",
                 status = state.status,
                 onStatusChange = viewModel::setStatus,
+                onHistory = onOpenHistory,
                 onNotifications = onOpenNotifications,
             )
             Column(
@@ -109,15 +103,6 @@ fun DashboardScreen(
                     NewLeadsBanner(count = state.stats.newLeads, onOpen = onOpenLeads)
                     Spacer(Modifier.height(16.dp))
                 }
-                SlideToAction(
-                    label = "Get next lead",
-                    icon = Icons.Rounded.PhoneInTalk,
-                    onComplete = {
-                        viewModel.getNextLead(onCall = onCallLead)
-                    },
-                    enabled = !state.gettingNext,
-                )
-                Spacer(Modifier.height(20.dp))
                 SectionHeader("Today's overview")
                 StatGrid(state)
                 Spacer(Modifier.height(20.dp))
@@ -142,6 +127,7 @@ private fun DashboardHero(
     agentName: String,
     status: AgentStatus,
     onStatusChange: (AgentStatus) -> Unit,
+    onHistory: () -> Unit,
     onNotifications: () -> Unit,
 ) {
     Box(
@@ -182,6 +168,22 @@ private fun DashboardHero(
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.15f))
+                        .clickable { onHistory() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.History,
+                        contentDescription = "Call history",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.size(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.15f))
                         .clickable { onNotifications() },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -207,7 +209,7 @@ private val WindowPaddings = androidx.compose.foundation.layout.PaddingValues(
 private fun StatusSelector(current: AgentStatus, onChange: (AgentStatus) -> Unit) {
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = Color.White,
+        color = AppColor.surface,
         tonalElevation = 4.dp,
         shadowElevation = 4.dp,
         modifier = Modifier.fillMaxWidth(),
@@ -215,7 +217,7 @@ private fun StatusSelector(current: AgentStatus, onChange: (AgentStatus) -> Unit
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 "YOUR STATUS",
-                color = Ink500,
+                color = AppColor.ink500,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.8.sp,
@@ -262,7 +264,7 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
                     Text(
                         text = "Today's performance",
                         fontSize = 11.sp,
-                        color = Ink500,
+                        color = AppColor.ink500,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(6.dp))
@@ -271,13 +273,13 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
                             text = connected.toString(),
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Ink900,
+                            color = AppColor.ink900,
                         )
                         Spacer(Modifier.size(6.dp))
                         Text(
                             text = "/ $total calls",
                             fontSize = 13.sp,
-                            color = Ink500,
+                            color = AppColor.ink500,
                             modifier = Modifier.padding(bottom = 4.dp),
                         )
                     }
@@ -301,7 +303,7 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
             LinearProgressIndicator(
                 progress = { rate.coerceIn(0f, 1f) },
                 color = Success,
-                trackColor = Ink100,
+                trackColor = AppColor.ink100,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp)
@@ -423,8 +425,8 @@ private fun OverviewTile(
             }
             Spacer(Modifier.size(10.dp))
             Column {
-                Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Ink900)
-                Text(label, fontSize = 11.sp, color = Ink500)
+                Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColor.ink900)
+                Text(label, fontSize = 11.sp, color = AppColor.ink500)
             }
         }
     }
@@ -442,20 +444,8 @@ private fun QuickActions(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            QuickTile("My Leads", Icons.Outlined.People, Brand600, onOpenLeads, Modifier.weight(1f))
-            QuickTile("Follow-ups", Icons.Outlined.Schedule, Warn, onOpenCallbacks, Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            QuickTile("History", Icons.Outlined.History, AccentSky, onOpenHistory, Modifier.weight(1f))
             QuickTile("Campaigns", Icons.Outlined.Campaign, AccentViolet, onOpenCampaigns, Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             QuickTile("Reports", Icons.Outlined.Assessment, AccentMint, onOpenReports, Modifier.weight(1f))
-            QuickTile("Alerts", Icons.Outlined.NotificationsNone, AccentRose, onOpenNotifications, Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            QuickTile("Settings", Icons.Outlined.Settings, Ink700, onOpenSettings, Modifier.weight(1f))
-            Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -491,7 +481,7 @@ private fun QuickTile(
                 Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.size(10.dp))
-            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Ink900)
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = AppColor.ink900)
         }
     }
 }

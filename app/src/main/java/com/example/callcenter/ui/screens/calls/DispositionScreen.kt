@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Notes
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,7 +30,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,8 +39,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.callcenter.data.repository.CallbacksRepository
 import com.example.callcenter.data.repository.CallsRepository
+import com.example.callcenter.data.repository.DispositionsRepository
 import com.example.callcenter.data.repository.LeadsRepository
 import com.example.callcenter.domain.model.Disposition
+import com.example.callcenter.domain.model.DispositionCode
 import com.example.callcenter.ui.components.AppButton
 import com.example.callcenter.ui.components.AppButtonSize
 import com.example.callcenter.ui.components.DateTimeField
@@ -48,13 +50,12 @@ import com.example.callcenter.ui.components.PageHeader
 import com.example.callcenter.ui.components.ScreenContainer
 import com.example.callcenter.ui.components.SectionHeader
 import com.example.callcenter.ui.components.colorForDisposition
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
-import com.example.callcenter.ui.theme.Ink200
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDateTime
 import javax.inject.Inject
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -62,17 +63,25 @@ class DispositionViewModel @Inject constructor(
     private val callsRepo: CallsRepository,
     private val leadsRepo: LeadsRepository,
     private val callbacksRepo: CallbacksRepository,
+    private val dispositionsRepo: DispositionsRepository,
 ) : ViewModel() {
+
+    val codes: StateFlow<List<DispositionCode>> = dispositionsRepo.codes
+
+    init {
+        viewModelScope.launch { dispositionsRepo.refresh() }
+    }
+
     fun submit(
         leadId: Int,
-        disposition: Disposition,
+        disposition: DispositionCode,
         note: String,
         callbackAt: LocalDateTime?,
         onDone: () -> Unit,
     ) {
         viewModelScope.launch {
-            callsRepo.hangup(disposition = disposition, note = note.takeIf { it.isNotBlank() })
-            if (disposition == Disposition.FOLLOW_UP && callbackAt != null) {
+            callsRepo.hangup(disposition = disposition.mapped, note = note.takeIf { it.isNotBlank() })
+            if (disposition.mapped == Disposition.FOLLOW_UP && callbackAt != null) {
                 val lead = leadsRepo.byId(leadId)
                 if (lead != null) {
                     callbacksRepo.schedule(lead.id, lead.name, lead.phone, lead.campaignName, callbackAt, note)
@@ -91,7 +100,8 @@ fun DispositionScreen(
     onDone: () -> Unit,
     viewModel: DispositionViewModel = hiltViewModel(),
 ) {
-    var disposition by remember { mutableStateOf<Disposition?>(null) }
+    val codes by viewModel.codes.collectAsState()
+    var disposition by remember { mutableStateOf<DispositionCode?>(null) }
     var note by remember { mutableStateOf("") }
     var followUpAt by remember { mutableStateOf<LocalDateTime?>(null) }
 
@@ -105,9 +115,9 @@ fun DispositionScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 SectionHeader("How did the call go?")
-                DispositionGrid(disposition) { disposition = it }
+                DispositionGrid(codes, disposition) { disposition = it }
 
-                if (disposition == Disposition.FOLLOW_UP) {
+                if (disposition?.mapped == Disposition.FOLLOW_UP) {
                     DateTimeField(
                         value = followUpAt,
                         onValueChange = { followUpAt = it },
@@ -117,7 +127,7 @@ fun DispositionScreen(
 
                 Text(
                     "Notes",
-                    color = Ink500,
+                    color = AppColor.ink500,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.8.sp,
@@ -148,13 +158,16 @@ fun DispositionScreen(
 }
 
 @Composable
-private fun DispositionGrid(selected: Disposition?, onSelect: (Disposition) -> Unit) {
-    val items = Disposition.entries
+private fun DispositionGrid(
+    items: List<DispositionCode>,
+    selected: DispositionCode?,
+    onSelect: (DispositionCode) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 row.forEach { d ->
-                    DispositionTile(d, selected == d, { onSelect(d) }, Modifier.weight(1f))
+                    DispositionTile(d, selected?.code == d.code, { onSelect(d) }, Modifier.weight(1f))
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
@@ -164,14 +177,14 @@ private fun DispositionGrid(selected: Disposition?, onSelect: (Disposition) -> U
 
 @Composable
 private fun DispositionTile(
-    d: Disposition,
+    d: DispositionCode,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val color = colorForDisposition(d)
-    val bg = if (selected) color.copy(alpha = 0.14f) else Color.White
-    val borderColor = if (selected) color else Ink200
+    val color = colorForDisposition(d.mapped)
+    val bg = if (selected) color.copy(alpha = 0.14f) else AppColor.surface
+    val borderColor = if (selected) color else AppColor.ink200
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
@@ -196,6 +209,6 @@ private fun DispositionTile(
             )
         }
         Spacer(Modifier.size(10.dp))
-        Text(d.label, color = Ink900, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text(d.label, color = AppColor.ink900, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
     }
 }

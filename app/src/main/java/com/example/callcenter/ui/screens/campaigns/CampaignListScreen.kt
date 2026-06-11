@@ -37,10 +37,7 @@ import com.example.callcenter.ui.components.GradientHeader
 import com.example.callcenter.ui.components.LoadingState
 import com.example.callcenter.ui.components.StatusBadge
 import com.example.callcenter.ui.theme.AccentMint
-import com.example.callcenter.ui.theme.AppBg
-import com.example.callcenter.ui.theme.Ink100
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
+import com.example.callcenter.ui.theme.AppColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,6 +56,7 @@ class CampaignListViewModel @Inject constructor(
         viewModelScope.launch {
             campaignsRepo.observeCampaigns().collect { _state.value = State(items = it, loading = false) }
         }
+        viewModelScope.launch { campaignsRepo.refresh() }
     }
 }
 
@@ -71,7 +69,7 @@ fun CampaignListScreen(
     val state by viewModel.state.collectAsState()
     Box(Modifier
         .fillMaxSize()
-        .background(AppBg)) {
+        .background(AppColor.bg)) {
         Column(Modifier.fillMaxSize()) {
             GradientHeader(title = "Campaigns", subtitle = "${state.items.size} total", onBack = onBack)
             if (state.loading) LoadingState() else LazyColumn(
@@ -99,19 +97,19 @@ private fun CampaignRow(c: Campaign, onClick: () -> Unit) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(c.name, fontWeight = FontWeight.Bold, color = Ink900, fontSize = 15.sp)
-                    Text(c.description, color = Ink500, fontSize = 12.sp)
+                    Text(c.name, fontWeight = FontWeight.Bold, color = AppColor.ink900, fontSize = 15.sp)
+                    Text(c.description, color = AppColor.ink500, fontSize = 12.sp)
                 }
                 StatusBadge(
                     text = if (c.active) "Active" else "Paused",
-                    color = if (c.active) AccentMint else Ink500,
+                    color = if (c.active) AccentMint else AppColor.ink500,
                 )
             }
             Spacer(Modifier.height(10.dp))
             LinearProgressIndicator(
                 progress = { c.progress.coerceIn(0f, 1f) },
                 color = AccentMint,
-                trackColor = Ink100,
+                trackColor = AppColor.ink100,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
@@ -120,7 +118,7 @@ private fun CampaignRow(c: Campaign, onClick: () -> Unit) {
             Spacer(Modifier.height(6.dp))
             Text(
                 "${c.contactedLeads}/${c.totalLeads} contacted • ${c.conversions} wins",
-                color = Ink500,
+                color = AppColor.ink500,
                 fontSize = 11.sp,
             )
         }

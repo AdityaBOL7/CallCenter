@@ -7,6 +7,7 @@ import com.example.callcenter.data.repository.CallsRepository
 import com.example.callcenter.data.repository.LeadsRepository
 import com.example.callcenter.domain.model.AgentStatus
 import com.example.callcenter.domain.model.CallRouteType
+import com.example.callcenter.domain.model.LeadStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,13 +29,28 @@ class DashboardViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            combine(agentRepo.agent, agentRepo.stats) { agent, stats -> agent to stats }
-                .collect { (agent, stats) ->
-                    _state.update {
-                        it.copy(agent = agent, stats = stats, status = agent.status, loading = false)
-                    }
+            combine(
+                agentRepo.agent,
+                agentRepo.stats,
+                leadsRepo.leads,
+            ) { agent, stats, leads ->
+                // newLeads isn't part of the agent stats payload; derive the count
+                // of newly-assigned leads from the real leads list instead.
+                val newLeads = leads.count { it.status == LeadStatus.NEW }
+                Triple(agent, stats.copy(newLeads = newLeads), agent?.status)
+            }.collect { (agent, stats, status) ->
+                _state.update {
+                    it.copy(
+                        agent = agent,
+                        stats = stats,
+                        status = status ?: it.status,
+                        loading = false,
+                    )
                 }
+            }
         }
+        viewModelScope.launch { agentRepo.loadProfile() }
+        viewModelScope.launch { leadsRepo.refresh() }
     }
 
     fun setStatus(status: AgentStatus) {

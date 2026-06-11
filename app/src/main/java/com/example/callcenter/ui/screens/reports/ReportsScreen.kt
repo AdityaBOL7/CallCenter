@@ -33,7 +33,7 @@ import com.example.callcenter.ui.components.GradientHeader
 import com.example.callcenter.ui.components.SectionHeader
 import com.example.callcenter.ui.components.StatCard
 import com.example.callcenter.ui.components.StatTone
-import com.example.callcenter.ui.theme.AppBg
+import com.example.callcenter.ui.theme.AppColor
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,7 +59,7 @@ fun ReportsScreen(
     val stats by viewModel.stats.collectAsState()
     Box(Modifier
         .fillMaxSize()
-        .background(AppBg)) {
+        .background(AppColor.bg)) {
         Column(Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())) {

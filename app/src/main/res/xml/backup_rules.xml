@@ -6,8 +6,7 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <!-- Never back up the auth tokens (access/refresh) — they must not leave
+         the device sandbox via cloud backup. DataStore writes to files/datastore. -->
+    <exclude domain="file" path="datastore/auth_tokens.preferences_pb"/>
 </full-backup-content>

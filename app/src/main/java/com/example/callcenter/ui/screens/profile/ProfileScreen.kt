@@ -25,14 +25,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AlternateEmail
 import androidx.compose.material.icons.outlined.Article
 import androidx.compose.material.icons.outlined.CallMissed
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.ModeEdit
-import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material3.Icon
@@ -54,23 +55,20 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.callcenter.data.prefs.AppPreferences
 import com.example.callcenter.data.repository.AgentRepository
 import com.example.callcenter.data.repository.AuthRepository
 import com.example.callcenter.domain.model.Agent
 import com.example.callcenter.domain.model.AgentStats
+import com.example.callcenter.domain.model.AgentStatus
 import com.example.callcenter.ui.components.colorForAgentStatus
 import com.example.callcenter.ui.theme.AccentSky
 import com.example.callcenter.ui.theme.AccentViolet
-import com.example.callcenter.ui.theme.AppBg
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.AppGradients
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Danger
 import com.example.callcenter.ui.theme.HeaderShape
-import com.example.callcenter.ui.theme.Ink100
-import com.example.callcenter.ui.theme.Ink200
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink700
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Success
 import com.example.callcenter.ui.theme.Warn
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -85,22 +83,57 @@ import kotlinx.coroutines.launch
 class ProfileViewModel @Inject constructor(
     private val agentRepo: AgentRepository,
     private val authRepo: AuthRepository,
+    private val appPrefs: AppPreferences,
 ) : ViewModel() {
-    data class State(val agent: Agent? = null, val stats: AgentStats = AgentStats())
+    data class State(
+        val agent: Agent? = null,
+        val stats: AgentStats = AgentStats(),
+        val notice: String? = null,
+        val provisioned: Boolean = false,   // true once me/ returns a real Agent row
+        val updatingStatus: Boolean = false,
+        val themeOverride: String = "system",   // "system" | "light" | "dark"
+    )
     private val _state = MutableStateFlow(State())
     val state = _state.asStateFlow()
 
     init {
         viewModelScope.launch {
-            combine(agentRepo.agent, agentRepo.stats) { a, s -> a to s }.collect { (a, s) ->
-                _state.update { it.copy(agent = a, stats = s) }
+            combine(agentRepo.agent, agentRepo.stats, agentRepo.profileError) { a, s, err ->
+                Triple(a, s, err)
+            }.collect { (a, s, err) ->
+                // A real Agent row has a non-zero id (the login fallback uses id=0).
+                _state.update {
+                    it.copy(agent = a, stats = s, notice = err, provisioned = (a?.id ?: 0) > 0)
+                }
             }
+        }
+        viewModelScope.launch {
+            appPrefs.prefs.collect { p ->
+                _state.update { it.copy(themeOverride = p.themeOverride) }
+            }
+        }
+        viewModelScope.launch { agentRepo.loadProfile() }
+    }
+
+    fun setTheme(value: String) {
+        viewModelScope.launch { appPrefs.setTheme(value) }
+    }
+
+    fun setStatus(status: AgentStatus) {
+        viewModelScope.launch {
+            _state.update { it.copy(updatingStatus = true) }
+            agentRepo.setStatus(status)
+            _state.update { it.copy(updatingStatus = false) }
         }
     }
 
     fun signOut(onDone: () -> Unit) {
-        authRepo.logout()
-        onDone()
+        viewModelScope.launch {
+            agentRepo.serverLogout()   // best-effort: tell the backend before dropping tokens
+            authRepo.logout()          // clears tokens locally
+            agentRepo.clear()          // wipe in-memory profile/stats
+            onDone()
+        }
     }
 }
 
@@ -118,7 +151,7 @@ fun ProfileScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(AppBg)
+            .background(AppColor.bg)
     ) {
         Column(Modifier.fillMaxSize()) {
             ProfileHero(agent = state.agent, onEdit = onEditProfile)
@@ -129,7 +162,24 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                SnapshotCard(stats = state.stats)
+                if (state.notice != null) {
+                    NoticeBanner(state.notice!!)
+                }
+
+                // Presence control — only meaningful once provisioned as a dialer agent.
+                if (state.provisioned && state.agent != null) {
+                    ProfileStatusSelector(
+                        current = state.agent!!.status,
+                        updating = state.updatingStatus,
+                        onChange = viewModel::setStatus,
+                    )
+                }
+
+                // Snapshot stats are computed from the Calls/Callbacks APIs
+                // (Phase 4) — hidden until that data is real, to avoid fake zeros.
+                if (state.provisioned) {
+                    SnapshotCard(stats = state.stats)
+                }
 
                 SectionLabel("TELEPHONY")
                 GroupedCard {
@@ -137,38 +187,29 @@ fun ProfileScreen(
                         icon = Icons.Outlined.AlternateEmail,
                         tint = AccentSky,
                         label = "Username",
-                        value = state.agent?.username ?: "—",
+                        value = state.agent?.username.orDash(),
                     )
                     RowDivider()
                     InfoRow(
                         icon = Icons.Outlined.Phone,
                         tint = Success,
                         label = "Extension",
-                        value = state.agent?.extension ?: "—",
+                        value = state.agent?.extension.orDash(),
                     )
                     RowDivider()
                     InfoRow(
                         icon = Icons.Outlined.Storage,
                         tint = AccentViolet,
                         label = "SIP user",
-                        value = state.agent?.sipUsername ?: "—",
+                        value = state.agent?.sipUsername.orDash(),
                     )
                 }
 
-                SectionLabel("PREFERENCES")
+                SectionLabel("APPEARANCE")
                 GroupedCard {
-                    NavRow(
-                        icon = Icons.Outlined.NotificationsNone,
-                        tint = Warn,
-                        label = "Notifications",
-                        onClick = onSettings,
-                    )
-                    RowDivider()
-                    NavRow(
-                        icon = Icons.Outlined.Settings,
-                        tint = Ink700,
-                        label = "App settings",
-                        onClick = onSettings,
+                    ThemeSegmented(
+                        selected = state.themeOverride,
+                        onSelect = viewModel::setTheme,
                     )
                 }
 
@@ -194,7 +235,7 @@ fun ProfileScreen(
 
                 Text(
                     "Agent Dialer • v1.0.0",
-                    color = Ink500,
+                    color = AppColor.ink500,
                     fontSize = 11.sp,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -316,7 +357,7 @@ private fun SnapshotCard(stats: AgentStats) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "TODAY'S SNAPSHOT",
-                        color = Ink500,
+                        color = AppColor.ink500,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
@@ -327,18 +368,18 @@ private fun SnapshotCard(stats: AgentStats) {
                             stats.connectedCalls.toString(),
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Ink900,
+                            color = AppColor.ink900,
                         )
                         Spacer(Modifier.size(6.dp))
                         Text(
                             "/ ${stats.totalCalls}",
                             fontSize = 14.sp,
-                            color = Ink500,
+                            color = AppColor.ink500,
                             modifier = Modifier.padding(bottom = 4.dp),
                         )
                     }
                     Spacer(Modifier.size(2.dp))
-                    Text("Connected of total", color = Ink500, fontSize = 11.sp)
+                    Text("Connected of total", color = AppColor.ink500, fontSize = 11.sp)
                 }
                 Box(
                     modifier = Modifier
@@ -359,7 +400,7 @@ private fun SnapshotCard(stats: AgentStats) {
             LinearProgressIndicator(
                 progress = { stats.connectionRate.coerceIn(0f, 1f) },
                 color = Success,
-                trackColor = Ink100,
+                trackColor = AppColor.ink100,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
@@ -391,8 +432,86 @@ private fun MiniStat(icon: ImageVector, tint: Color, value: String, label: Strin
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
         }
         Spacer(Modifier.size(6.dp))
-        Text(value, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Ink900)
-        Text(label, color = Ink500, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+        Text(value, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AppColor.ink900)
+        Text(label, color = AppColor.ink500, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+    }
+}
+
+private fun String?.orDash(): String = this?.takeIf { it.isNotBlank() } ?: "—"
+
+@Composable
+private fun ProfileStatusSelector(
+    current: AgentStatus,
+    updating: Boolean,
+    onChange: (AgentStatus) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "YOUR STATUS",
+                    color = AppColor.ink500,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                if (updating) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = Brand500,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AgentStatus.entries.forEach { st ->
+                    val selected = st == current
+                    val color = colorForAgentStatus(st)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (selected) color else color.copy(alpha = 0.12f))
+                            .clickable(enabled = !updating) { if (!selected) onChange(st) }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = st.label,
+                            color = if (selected) Color.White else color,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticeBanner(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = Warn.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, Warn.copy(alpha = 0.35f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Outlined.HelpOutline, contentDescription = null, tint = Warn, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.size(10.dp))
+            Text(message, color = AppColor.ink700, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        }
     }
 }
 
@@ -400,7 +519,7 @@ private fun MiniStat(icon: ImageVector, tint: Color, value: String, label: Strin
 private fun SectionLabel(text: String) {
     Text(
         text,
-        color = Ink500,
+        color = AppColor.ink500,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
         letterSpacing = 0.8.sp,
@@ -427,7 +546,7 @@ private fun RowDivider() {
             .fillMaxWidth()
             .height(1.dp)
             .padding(start = 56.dp)
-            .background(Ink200),
+            .background(AppColor.ink200),
     )
 }
 
@@ -449,8 +568,8 @@ private fun InfoRow(icon: ImageVector, tint: Color, label: String, value: String
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
         }
         Spacer(Modifier.size(12.dp))
-        Text(label, color = Ink700, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Text(value, color = Ink900, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(label, color = AppColor.ink700, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(value, color = AppColor.ink900, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -473,8 +592,54 @@ private fun NavRow(icon: ImageVector, tint: Color, label: String, onClick: () ->
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
         }
         Spacer(Modifier.size(12.dp))
-        Text(label, color = Ink900, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Ink500, modifier = Modifier.size(20.dp))
+        Text(label, color = AppColor.ink900, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun ThemeSegmented(selected: String, onSelect: (String) -> Unit) {
+    val options = listOf(
+        Triple("system", "System", Icons.Outlined.PhoneAndroid),
+        Triple("light", "Light", Icons.Outlined.LightMode),
+        Triple("dark", "Dark", Icons.Outlined.DarkMode),
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(AppColor.surfaceAlt)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        options.forEach { (key, label, icon) ->
+            val isSelected = selected == key
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isSelected) AppColor.surface else Color.Transparent)
+                    .clickable { if (!isSelected) onSelect(key) }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (isSelected) Brand500 else AppColor.ink500,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    label,
+                    color = if (isSelected) AppColor.ink900 else AppColor.ink500,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                )
+            }
+        }
     }
 }
 

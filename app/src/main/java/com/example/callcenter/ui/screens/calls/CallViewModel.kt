@@ -62,11 +62,14 @@ class CallViewModel @Inject constructor(
                     campaignName = lead?.campaignName ?: "",
                 )
             }
-            // Scripted state machine: initiating → ringing → connected
+            // Scripted state machine: initiating → ringing → connected.
+            // Each transition is mirrored to the backend call record (best-effort).
             delay(1500)
             _state.update { it.copy(status = CallStatus.RINGING) }
+            callsRepo.patchCall(status = CallStatus.RINGING)
             delay(2000)
             _state.update { it.copy(status = CallStatus.CONNECTED) }
+            callsRepo.patchCall(status = CallStatus.CONNECTED)
             startTimer()
         }
     }
@@ -84,10 +87,30 @@ class CallViewModel @Inject constructor(
         }
     }
 
-    fun toggleMute() = _state.update { it.copy(muted = !it.muted) }
-    fun toggleHold() = _state.update { it.copy(onHold = !it.onHold) }
+    fun toggleMute() {
+        val muted = !_state.value.muted
+        _state.update { it.copy(muted = muted) }
+        viewModelScope.launch { callsRepo.patchCall(muted = muted) }
+    }
+
+    fun toggleHold() {
+        val onHold = !_state.value.onHold
+        _state.update { it.copy(onHold = onHold) }
+        viewModelScope.launch {
+            callsRepo.patchCall(
+                status = if (onHold) CallStatus.ON_HOLD else CallStatus.CONNECTED,
+                onHold = onHold,
+            )
+        }
+    }
+
     fun toggleSpeaker() = _state.update { it.copy(speaker = !it.speaker) }
-    fun toggleRecording() = _state.update { it.copy(recording = !it.recording) }
+
+    fun toggleRecording() {
+        val recording = !_state.value.recording
+        _state.update { it.copy(recording = recording) }
+        viewModelScope.launch { callsRepo.patchCall(recording = recording) }
+    }
     fun openKeypad() = _state.update { it.copy(keypadOpen = true) }
     fun closeKeypad() = _state.update { it.copy(keypadOpen = false) }
     fun openNote() = _state.update { it.copy(noteOpen = true) }

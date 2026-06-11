@@ -19,7 +19,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.callcenter.domain.model.AuthStatus
-import com.example.callcenter.ui.screens.auth.ForgotPasswordScreen
 import com.example.callcenter.ui.screens.auth.LoginScreen
 import com.example.callcenter.ui.screens.callbacks.CallbackListScreen
 import com.example.callcenter.ui.screens.callbacks.ScheduleCallbackScreen
@@ -65,11 +64,7 @@ fun AppNavGraph(rootViewModel: RootViewModel = hiltViewModel()) {
                         popUpTo(Dest.Login.route) { inclusive = true }
                     }
                 },
-                onForgotPassword = { rootNav.navigate(Dest.ForgotPassword.route) },
             )
-        }
-        composable(Dest.ForgotPassword.route) {
-            ForgotPasswordScreen(onBack = { rootNav.popBackStack() })
         }
 
         // Main bottom-bar host
@@ -187,9 +182,6 @@ private fun TabsNavHost(
                 onOpenCampaigns = { rootNav.navigate(Dest.CampaignList.route) },
                 onOpenReports = { rootNav.navigate(Dest.Reports.route) },
                 onOpenSettings = { rootNav.navigate(Dest.Settings.route) },
-                onCallLead = { leadId, callId, route ->
-                    rootNav.navigate(Dest.Call.build(callId, leadId, route))
-                },
             )
         }
         composable(Dest.Leads.route) {

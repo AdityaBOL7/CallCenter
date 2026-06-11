@@ -37,8 +37,7 @@ import com.example.callcenter.domain.model.Lead
 import com.example.callcenter.domain.model.LeadStatus
 import com.example.callcenter.ui.components.colorForLeadPriority
 import com.example.callcenter.ui.components.colorForLeadStatus
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Warn
 import java.time.format.DateTimeFormatter
 
@@ -94,7 +93,7 @@ fun LeadCard(
                     }
                     Spacer(Modifier.size(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(lead.name, fontWeight = FontWeight.SemiBold, color = Ink900, fontSize = 15.sp)
+                        Text(lead.name, fontWeight = FontWeight.SemiBold, color = AppColor.ink900, fontSize = 15.sp)
                         Spacer(Modifier.size(2.dp))
                         IconText(icon = Icons.Outlined.Phone, text = lead.phone)
                         Spacer(Modifier.size(2.dp))
@@ -111,11 +110,11 @@ fun LeadCard(
                         Icon(
                             imageVector = if (followUpText != null) Icons.Outlined.EventAvailable else Icons.Outlined.Schedule,
                             contentDescription = null,
-                            tint = Ink500,
+                            tint = AppColor.ink500,
                             modifier = Modifier.size(13.dp),
                         )
                         Spacer(Modifier.size(6.dp))
-                        Text(bottom, color = Ink500, fontSize = 11.sp)
+                        Text(bottom, color = AppColor.ink500, fontSize = 11.sp)
                     }
                 }
             }
@@ -126,9 +125,9 @@ fun LeadCard(
 @Composable
 private fun IconText(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = Ink500, modifier = Modifier.size(12.dp))
+        Icon(icon, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(12.dp))
         Spacer(Modifier.size(6.dp))
-        Text(text, color = Ink500, fontSize = 12.sp, maxLines = 1)
+        Text(text, color = AppColor.ink500, fontSize = 12.sp, maxLines = 1)
     }
 }
 

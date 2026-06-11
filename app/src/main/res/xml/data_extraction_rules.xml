@@ -5,15 +5,11 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <!-- Auth tokens must never leave the device via cloud backup. -->
+        <exclude domain="file" path="datastore/auth_tokens.preferences_pb"/>
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <!-- ...nor via device-to-device transfer. -->
+        <exclude domain="file" path="datastore/auth_tokens.preferences_pb"/>
     </device-transfer>
-    -->
 </data-extraction-rules>

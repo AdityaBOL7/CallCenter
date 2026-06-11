@@ -12,7 +12,10 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.callcenter"
+        // Play Store app identity (permanent after first publish). The internal
+        // code package / namespace stays com.example.callcenter — Play only checks
+        // applicationId, and the namespace is invisible to users.
+        applicationId = "com.bol7.dialeragent"
         minSdk = 24
         targetSdk = 35
         versionCode = 1
@@ -24,11 +27,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // NOTE: no signingConfig here — release signing is configured
+            // separately (keystore kept out of git).
         }
     }
     compileOptions {
@@ -42,6 +48,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -86,9 +93,16 @@ dependencies {
     // Serialization (replaces Parcelize for any persistent / nav-arg payloads)
     implementation(libs.kotlinx.serialization.json)
 
-    // DataStore + secure prefs
+    // Networking
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.kotlinx.serialization.converter)
+    implementation(libs.okhttp)
+    implementation(libs.okhttp.logging.interceptor)
+
+    // DataStore (tokens + prefs). Note: androidx.security.crypto /
+    // EncryptedSharedPreferences was removed — it's deprecated and crashes on
+    // OEM keystore invalidation (AEADBadTagException). Tokens now use DataStore.
     implementation(libs.androidx.datastore.preferences)
-    implementation(libs.androidx.security.crypto)
 
     // Coil
     implementation(libs.coil.compose)

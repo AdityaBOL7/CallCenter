@@ -54,11 +54,8 @@ import com.example.callcenter.domain.model.CallbackStatus
 import com.example.callcenter.ui.components.EmptyState
 import com.example.callcenter.ui.components.GradientHeader
 import com.example.callcenter.ui.components.LoadingState
-import com.example.callcenter.ui.theme.AppBg
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Danger
-import com.example.callcenter.ui.theme.Ink200
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Success
 import com.example.callcenter.ui.theme.Warn
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -84,6 +81,7 @@ class CallbackListViewModel @Inject constructor(
         viewModelScope.launch {
             callbacksRepo.observeAll().collect { _state.value = State(items = it, loading = false) }
         }
+        viewModelScope.launch { callbacksRepo.refresh() }
     }
 
     fun startCall(callback: Callback, onCall: (leadId: Int, callId: String, route: String) -> Unit) {
@@ -112,7 +110,7 @@ fun CallbackListScreen(
 
     Box(Modifier
         .fillMaxSize()
-        .background(AppBg)) {
+        .background(AppColor.bg)) {
         Column(Modifier.fillMaxSize()) {
             GradientHeader(
                 title = "Follow-ups",
@@ -209,17 +207,17 @@ private fun CallbackCard(
                     }
                     Spacer(Modifier.size(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(cb.customerName, fontWeight = FontWeight.Bold, color = Ink900, fontSize = 15.sp)
+                        Text(cb.customerName, fontWeight = FontWeight.Bold, color = AppColor.ink900, fontSize = 15.sp)
                         Spacer(Modifier.size(2.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Phone, contentDescription = null, tint = Ink500, modifier = Modifier.size(12.dp))
+                            Icon(Icons.Outlined.Phone, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.size(6.dp))
-                            Text(cb.phone, color = Ink500, fontSize = 12.sp)
+                            Text(cb.phone, color = AppColor.ink500, fontSize = 12.sp)
                         }
                         Spacer(Modifier.size(2.dp))
                         Text(
                             text = buildScheduledText(cb.scheduledAt, overdue, fmt),
-                            color = if (overdue) Danger else Ink500,
+                            color = if (overdue) Danger else AppColor.ink500,
                             fontSize = 12.sp,
                             fontWeight = if (overdue) FontWeight.SemiBold else FontWeight.Normal,
                         )
@@ -237,7 +235,7 @@ private fun CallbackCard(
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                     ) {
-                        Text(cb.note, color = Ink500, fontSize = 13.sp)
+                        Text(cb.note, color = AppColor.ink500, fontSize = 13.sp)
                     }
                 }
                 Spacer(Modifier.size(12.dp))
@@ -325,15 +323,15 @@ private fun SecondaryActionButton(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, Ink200, RoundedCornerShape(12.dp))
+            .border(1.dp, AppColor.ink200, RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable { onClick() }
             .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = Ink500, modifier = Modifier.size(16.dp))
+        Icon(icon, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(16.dp))
         Spacer(Modifier.size(6.dp))
-        Text(label, color = Ink900, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text(label, color = AppColor.ink900, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
     }
 }

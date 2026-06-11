@@ -57,10 +57,9 @@ import com.example.callcenter.domain.model.CallStatus
 import com.example.callcenter.ui.components.AppBottomSheet
 import com.example.callcenter.ui.components.AppButton
 import com.example.callcenter.ui.theme.AccentRose
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.AppGradients
 import com.example.callcenter.ui.theme.Brand500
-import com.example.callcenter.ui.theme.Ink400
-import com.example.callcenter.ui.theme.Ink800
 import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Success
 
@@ -100,7 +99,7 @@ fun CallScreen(
     if (state.keypadOpen) {
         AppBottomSheet(
             onDismiss = { viewModel.closeKeypad() },
-            containerColor = Ink900,
+            containerColor = AppColor.surface,
         ) {
             KeypadSheet(
                 dialed = state.dialed,
@@ -323,19 +322,19 @@ private fun KeypadSheet(
     Column(modifier = Modifier
         .fillMaxWidth()
         .padding(horizontal = 20.dp, vertical = 12.dp)) {
-        Text("Keypad", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Keypad", color = AppColor.ink900, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color.White.copy(alpha = 0.05f))
+                .background(AppColor.surfaceAlt)
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = dialed.ifEmpty { "Enter digits" },
-                color = if (dialed.isEmpty()) Color.White.copy(alpha = 0.4f) else Color.White,
+                color = if (dialed.isEmpty()) AppColor.ink400 else AppColor.ink900,
                 fontSize = 20.sp,
                 letterSpacing = 2.sp,
                 modifier = Modifier.weight(1f),
@@ -344,7 +343,7 @@ private fun KeypadSheet(
                 Icon(
                     Icons.Outlined.Backspace,
                     contentDescription = "Backspace",
-                    tint = Ink400,
+                    tint = AppColor.ink500,
                     modifier = Modifier
                         .size(22.dp)
                         .clickable { onBackspace() },
@@ -374,16 +373,16 @@ private fun KeypadGrid(onPress: (String) -> Unit) {
                             .weight(1f)
                             .height(54.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.1f))
+                            .background(AppColor.surfaceAlt)
                             .clickable { onPress(n) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(n, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                            Text(n, color = AppColor.ink900, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                             if (sub.isNotEmpty()) {
                                 Text(
                                     sub,
-                                    color = Color.White.copy(alpha = 0.5f),
+                                    color = AppColor.ink500,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.sp,
