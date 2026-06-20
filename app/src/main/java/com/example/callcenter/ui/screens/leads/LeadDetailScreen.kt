@@ -34,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.callcenter.data.repository.AgentRepository
 import com.example.callcenter.data.repository.CallsRepository
 import com.example.callcenter.data.repository.LeadsRepository
 import com.example.callcenter.domain.model.CallRouteType
@@ -59,6 +60,7 @@ class LeadDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val leadsRepo: LeadsRepository,
     private val callsRepo: CallsRepository,
+    private val agentRepo: AgentRepository,
 ) : ViewModel() {
     data class State(val lead: Lead? = null, val loading: Boolean = true)
     private val id: Int = savedStateHandle.get<String>(Dest.LeadDetail.ARG)?.toIntOrNull() ?: 0
@@ -71,10 +73,20 @@ class LeadDetailViewModel @Inject constructor(
         }
     }
 
-    fun startCall(onCall: (callId: String, route: String) -> Unit) {
+    fun startCall(
+        onCall: (callId: String, route: String) -> Unit,
+        onNotAvailable: () -> Unit = {},
+    ) {
         viewModelScope.launch {
             val lead = _state.value.lead ?: return@launch
-            val call = callsRepo.initiate(lead, CallRouteType.SIP)
+            agentRepo.loadProfile()
+            // Agents may only call while Available; use their assigned dial mode.
+            if (!callsRepo.canCall()) {
+                onNotAvailable()
+                return@launch
+            }
+            val route = agentRepo.agent.value?.callMode ?: CallRouteType.SIP
+            val call = callsRepo.initiate(lead, route)
             onCall(call.id, call.routeType.name)
         }
     }
@@ -89,6 +101,7 @@ fun LeadDetailScreen(
     viewModel: LeadDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     Box(Modifier
         .fillMaxSize()
         .background(AppColor.bg)) {
@@ -143,7 +156,18 @@ fun LeadDetailScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         AppButton(
                             text = "Call now",
-                            onClick = { viewModel.startCall(onCall) },
+                            onClick = {
+                                viewModel.startCall(
+                                    onCall = onCall,
+                                    onNotAvailable = {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Set your status to Available to start calling.",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                )
+                            },
                             leadingIcon = Icons.Outlined.Phone,
                             modifier = Modifier.weight(1f),
                         )

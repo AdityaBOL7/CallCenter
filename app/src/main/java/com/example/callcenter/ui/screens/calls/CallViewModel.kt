@@ -49,6 +49,9 @@ class CallViewModel @Inject constructor(
         CallRouteType.valueOf(savedStateHandle[Dest.Call.ARG_ROUTE] ?: "SIP")
     }.getOrDefault(CallRouteType.SIP)
 
+    /** SIM mode places a real carrier call; SIP runs the in-app VOIP screen. */
+    val isSim: Boolean = route == CallRouteType.MOBILE
+
     private val _state = MutableStateFlow(CallUiState())
     val state: StateFlow<CallUiState> = _state.asStateFlow()
 
@@ -62,6 +65,12 @@ class CallViewModel @Inject constructor(
                     campaignName = lead?.campaignName ?: "",
                 )
             }
+            // SIM mode hands the call to the system dialer (see CallScreen). We do
+            // NOT mark it connected here — the carrier call hasn't been placed yet,
+            // and may never be (permission denied / blank number). SimCallScreen
+            // calls onPlaced() → markSimConnected() once the dial actually fires,
+            // so the backend never records a phantom connected call.
+            if (isSim) return@launch
             // Scripted state machine: initiating → ringing → connected.
             // Each transition is mirrored to the backend call record (best-effort).
             delay(1500)
@@ -72,6 +81,35 @@ class CallViewModel @Inject constructor(
             callsRepo.patchCall(status = CallStatus.CONNECTED)
             startTimer()
         }
+    }
+
+    // True once we've fired (or attempted) the SIM carrier call. Lives in the
+    // ViewModel — which survives configuration changes (rotation) and the system
+    // dialer coming to the foreground — so the call is placed exactly once and a
+    // recomposition can't re-dial the customer. (See bug: re-dial on rotation.)
+    private var simDialAttempted = false
+
+    /**
+     * Returns true exactly once, the first time SimCallScreen is ready to place
+     * the carrier call. Subsequent calls (after rotation / recomposition) return
+     * false, so PhoneCaller.call() never fires a second time.
+     */
+    fun claimSimDial(): Boolean {
+        if (simDialAttempted) return false
+        simDialAttempted = true
+        return true
+    }
+
+    /**
+     * Called by SimCallScreen once the real carrier call has actually been placed
+     * (PhoneCaller.call returned true). Only now do we record the call as connected
+     * on the backend — so a denied permission or failed dial leaves no phantom
+     * connected call. Idempotent: safe if invoked more than once.
+     */
+    fun markSimConnected() {
+        if (_state.value.status == CallStatus.CONNECTED) return
+        _state.update { it.copy(status = CallStatus.CONNECTED) }
+        viewModelScope.launch { callsRepo.patchCall(status = CallStatus.CONNECTED) }
     }
 
     private fun startTimer() {
@@ -126,7 +164,14 @@ class CallViewModel @Inject constructor(
     fun hangup(onEnded: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(status = CallStatus.COMPLETED) }
-            callsRepo.hangup(note = _state.value.note.takeIf { it.isNotBlank() })
+            // Persist any in-call note via a plain PATCH (not a hangup), so it's
+            // saved without ending the call. The authoritative backend hangup
+            // (POST /calls/:id/hangup/) happens exactly once, in
+            // DispositionViewModel.submit() with the disposition — calling it here
+            // too would double-hang-up and could drop the outcome.
+            _state.value.note.takeIf { it.isNotBlank() }?.let { inCallNote ->
+                callsRepo.patchCall(note = inCallNote)
+            }
             delay(700)
             onEnded()
         }

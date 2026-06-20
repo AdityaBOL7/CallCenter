@@ -24,8 +24,10 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.FilterList
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.SwapVert
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -55,7 +57,6 @@ import com.example.callcenter.ui.components.LoadingState
 import com.example.callcenter.ui.components.SearchInput
 import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
-import com.example.callcenter.ui.theme.Brand50
 import com.example.callcenter.ui.theme.Brand600
 
 private enum class PickerKind { Status, Campaign, Sort }
@@ -64,10 +65,15 @@ private enum class PickerKind { Status, Campaign, Sort }
 @Composable
 fun LeadListScreen(
     onLeadClick: (Int) -> Unit,
+    onStartCall: (leadId: Int, callId: String, route: String) -> Unit = { _, _, _ -> },
     viewModel: LeadListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val startingAutoDial by viewModel.startingAutoDial.collectAsState()
+    val refreshing by viewModel.refreshing.collectAsState()
     var activePicker by remember { mutableStateOf<PickerKind?>(null) }
+    // Transient message shown over the list (empty queue / not-available).
+    var banner by remember { mutableStateOf<String?>(null) }
 
     val statusLabel = state.filters.status?.label ?: "All statuses"
     val campaignLabel = state.campaigns.firstOrNull { it.id == state.filters.campaignId }?.name
@@ -106,25 +112,76 @@ fun LeadListScreen(
                 onCampaignClick = { activePicker = PickerKind.Campaign },
                 onSortClick = { activePicker = PickerKind.Sort },
             )
-            when {
-                state.loading -> LoadingState()
-                state.leads.isEmpty() && state.error != null -> EmptyState(
-                    title = "Couldn't load leads",
-                    description = state.error!!,
-                )
-                state.leads.isEmpty() -> EmptyState(
-                    title = "No leads match",
-                    description = "Try clearing filters or your search.",
-                )
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(state.leads, key = { it.id }) { lead ->
-                        LeadCard(lead = lead, onClick = { onLeadClick(lead.id) })
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = viewModel::pullRefresh,
+                modifier = Modifier.weight(1f),
+            ) {
+                when {
+                    state.loading -> LoadingState()
+                    // Empty states inside a LazyColumn so the pull gesture works
+                    // even with nothing in the list (the most common refresh case).
+                    state.leads.isEmpty() && state.error != null -> LazyColumn(Modifier.fillMaxSize()) {
+                        item {
+                            EmptyState(
+                                title = "Couldn't load leads",
+                                description = state.error!!,
+                                modifier = Modifier.fillParentMaxSize(),
+                            )
+                        }
+                    }
+                    state.leads.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                        item {
+                            EmptyState(
+                                title = "No leads match",
+                                description = "Try clearing filters or your search.",
+                                modifier = Modifier.fillParentMaxSize(),
+                            )
+                        }
+                    }
+                    else -> LazyColumn(
+                        // Extra bottom padding so the floating Start button never
+                        // covers the last lead card.
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(state.leads, key = { it.id }) { lead ->
+                            LeadCard(lead = lead, onClick = { onLeadClick(lead.id) })
+                        }
                     }
                 }
             }
+        }
+
+        // Floating auto-dial button, pinned bottom-center over the list. The dial
+        // mode (SIP/SIM) comes from the agent's backend profile — no picker.
+        if (!state.loading) {
+            StartCallingButton(
+                busy = startingAutoDial,
+                onClick = {
+                    banner = null
+                    viewModel.startAutoDial(
+                        onCall = onStartCall,
+                        onEmpty = { banner = "No new leads to call right now." },
+                        onNotAvailable = {
+                            banner = "Set your status to Available to start calling."
+                        },
+                    )
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+            )
+        }
+
+        banner?.let { msg ->
+            InfoBanner(
+                text = msg,
+                onDismiss = { banner = null },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
+            )
         }
     }
 
@@ -177,6 +234,60 @@ fun LeadListScreen(
                 Spacer(Modifier.size(8.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun StartCallingButton(
+    busy: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Brand600)
+            .clickable(enabled = !busy) { onClick() }
+            .padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Outlined.PlayArrow,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            if (busy) "Preparing…" else "Start calling",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+        )
+    }
+}
+
+@Composable
+private fun InfoBanner(text: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    // Toast-style banner: inverse colors flip correctly with the theme
+    // (dark pill on light theme, light pill on dark theme).
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.inverseSurface)
+            .clickable { onDismiss() }
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            color = MaterialTheme.colorScheme.inverseOnSurface,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -351,14 +462,16 @@ private fun PickerRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) Brand50 else Color.Transparent)
+            // Brand tint over the theme surface; theme primary for the label so
+            // both flip correctly in dark mode (static Brand50 would stay light).
+            .background(if (selected) Brand500.copy(alpha = 0.12f) else Color.Transparent)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
-            color = if (selected) Brand600 else AppColor.ink900,
+            color = if (selected) MaterialTheme.colorScheme.primary else AppColor.ink900,
             fontSize = 14.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.weight(1f),

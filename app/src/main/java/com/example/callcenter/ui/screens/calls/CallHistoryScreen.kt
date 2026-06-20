@@ -29,8 +29,10 @@ import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,6 +85,7 @@ class CallHistoryViewModel @Inject constructor(
     data class State(
         val calls: List<Call> = emptyList(),
         val loading: Boolean = true,
+        val refreshing: Boolean = false,
         val range: HistoryRange = HistoryRange.Today,
         val hasRecording: Boolean = false,
     )
@@ -99,10 +102,23 @@ class CallHistoryViewModel @Inject constructor(
         viewModelScope.launch { callsRepo.refreshHistory() }
     }
 
+    /** Pull-to-refresh: re-fetch history without blanking the visible list. */
+    fun pullRefresh() {
+        viewModelScope.launch {
+            _state.update { it.copy(refreshing = true) }
+            try {
+                callsRepo.refreshHistory()
+            } finally {
+                _state.update { it.copy(refreshing = false) }
+            }
+        }
+    }
+
     fun setRange(r: HistoryRange) = _state.update { it.copy(range = r) }
     fun toggleHasRecording() = _state.update { it.copy(hasRecording = !it.hasRecording) }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun CallHistoryScreen(viewModel: CallHistoryViewModel = hiltViewModel()) {
@@ -125,14 +141,23 @@ fun CallHistoryScreen(viewModel: CallHistoryViewModel = hiltViewModel()) {
                 onRange = viewModel::setRange,
                 onToggleRecording = viewModel::toggleHasRecording,
             )
-            when {
-                state.loading -> LoadingState()
-                filtered.isEmpty() -> EmptyState(title = "No calls in this range")
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(filtered, key = { it.id }) { call -> CallHistoryRow(call) }
+            PullToRefreshBox(
+                isRefreshing = state.refreshing,
+                onRefresh = viewModel::pullRefresh,
+                modifier = Modifier.weight(1f),
+            ) {
+                when {
+                    state.loading -> LoadingState()
+                    // Empty state inside a LazyColumn so the pull gesture still works.
+                    filtered.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                        item { EmptyState(title = "No calls in this range", modifier = Modifier.fillParentMaxSize()) }
+                    }
+                    else -> LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(filtered, key = { it.id }) { call -> CallHistoryRow(call) }
+                    }
                 }
             }
         }

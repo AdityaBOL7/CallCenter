@@ -102,6 +102,17 @@ class LeadsRepository @Inject constructor(
             ?: _leads.value.firstOrNull()
     }
 
+    /**
+     * Ordered list of leads to auto-dial: status == NEW, highest priority first.
+     * Refreshes from the backend first so the queue reflects the latest leads.
+     */
+    suspend fun queueForAutoDial(): List<Lead> {
+        refresh()
+        return _leads.value
+            .filter { it.status == LeadStatus.NEW }
+            .sortedByDescending { it.priority.weight }
+    }
+
     // --- helpers ---
 
     private suspend fun runCatchingLead(block: suspend () -> LeadDto): Result<Lead> = try {

@@ -1,17 +1,21 @@
 package com.example.callcenter.data.repository
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.callcenter.data.remote.api.DialerApi
 import com.example.callcenter.data.remote.dto.CallDto
 import com.example.callcenter.data.remote.dto.HangupRequest
 import com.example.callcenter.data.remote.dto.StartCallRequest
 import com.example.callcenter.data.remote.dto.UpdateCallRequest
+import com.example.callcenter.domain.model.AgentStatus
 import com.example.callcenter.domain.model.Call
 import com.example.callcenter.domain.model.CallDirection
 import com.example.callcenter.domain.model.CallRouteType
 import com.example.callcenter.domain.model.CallStatus
 import com.example.callcenter.domain.model.Disposition
 import com.example.callcenter.domain.model.Lead
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
@@ -27,15 +31,27 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 @Singleton
 class CallsRepository @Inject constructor(
     private val dialerApi: DialerApi,
     private val json: Json,
+    private val agentRepo: AgentRepository,
+    @ApplicationContext private val context: Context,
 ) {
 
     private val _active = MutableStateFlow<Call?>(null)
     val active: StateFlow<Call?> = _active.asStateFlow()
+
+    /**
+     * Agents may only place calls while Available. Every call entry point (manual
+     * dial, auto-dial start, auto-dial advance) checks this first so no call ever
+     * starts on Break/Busy/Offline.
+     */
+    fun canCall(): Boolean = agentRepo.agent.value?.status == AgentStatus.AVAILABLE
 
     // Backend integer id of the active call, for PATCH/hangup. Null if start failed.
     private var activeCallId: Int? = null
@@ -43,6 +59,62 @@ class CallsRepository @Inject constructor(
     private val _history = MutableStateFlow<List<Call>>(emptyList())
 
     fun observeHistory(): Flow<List<Call>> = _history
+
+    // ---- Auto-dial session ----
+    // When the agent taps "Start auto-dial", a session holds the queued lead ids,
+    // the chosen route (SIP/SIM), and a cursor. After each disposition the UI calls
+    // advanceAutoDialAfter() to advance to the next lead automatically.
+    private val _autoDial = MutableStateFlow<AutoDialSession?>(null)
+    val autoDial: StateFlow<AutoDialSession?> = _autoDial.asStateFlow()
+
+    data class AutoDialSession(
+        val leadIds: List<Int>,
+        val route: CallRouteType,
+        val index: Int = 0,
+    ) {
+        val active: Boolean get() = index < leadIds.size
+        val remaining: Int get() = (leadIds.size - index).coerceAtLeast(0)
+    }
+
+    /** Begin an auto-dial session over the given leads with the chosen route. */
+    fun startAutoDial(leadIds: List<Int>, route: CallRouteType) {
+        _autoDial.value = if (leadIds.isEmpty()) null
+        else AutoDialSession(leadIds = leadIds, route = route)
+    }
+
+    /**
+     * Advance the auto-dial cursor to the next lead, but ONLY if [justDialedLeadId]
+     * is the session's current lead — i.e. the disposition that just finished
+     * really belongs to this auto-dial loop. A manual one-off call (whose lead
+     * isn't the session's current cursor) returns null and leaves the session
+     * untouched, so it can't hijack the call into the queue.
+     *
+     * Returns the next lead id to dial, or null if this wasn't an auto-dial call
+     * or the queue is now drained (in which case the session is cleared).
+     */
+    @Synchronized
+    fun advanceAutoDialAfter(justDialedLeadId: Int): Int? {
+        val session = _autoDial.value ?: return null
+        if (!session.active || session.leadIds[session.index] != justDialedLeadId) {
+            // Disposition belongs to a manual call, not this session — don't move.
+            return null
+        }
+        val next = session.copy(index = session.index + 1)
+        return if (next.active) {
+            _autoDial.value = next
+            next.leadIds[next.index]
+        } else {
+            _autoDial.value = null
+            null
+        }
+    }
+
+    /** The route for the running session, defaulting to SIP. */
+    fun autoDialRoute(): CallRouteType = _autoDial.value?.route ?: CallRouteType.SIP
+
+    fun stopAutoDial() {
+        _autoDial.value = null
+    }
 
     /** Refresh call history from the backend. */
     suspend fun refreshHistory(): Result<Unit> = try {
@@ -73,15 +145,20 @@ class CallsRepository @Inject constructor(
             startedAt = LocalDateTime.now(),
         )
         return try {
-            val dto = dialerApi.startCall(
-                StartCallRequest(
-                    leadId = lead.id,
-                    toNumber = lead.phone.takeIf { it.isNotBlank() },
-                    direction = "outbound",
-                ),
+            val request = StartCallRequest(
+                leadId = lead.id,
+                toNumber = lead.phone.takeIf { it.isNotBlank() },
+                direction = "outbound",
             )
+            // SIM mode uses the dedicated sim-dial endpoint (native-dialer
+            // attribution); SIP/VOIP use the metadata-only calls/ endpoint.
+            val dto = if (route == CallRouteType.MOBILE) {
+                dialerApi.simDial(request)
+            } else {
+                dialerApi.startCall(request)
+            }
             activeCallId = dto.id
-            Log.d(TAG, "calls/ start ← id=${dto.id} rpdp_uid=${dto.rpdpUid}")
+            Log.d(TAG, "calls/${if (route == CallRouteType.MOBILE) "sim-dial" else "start"} ← id=${dto.id} rpdp_uid=${dto.rpdpUid}")
             val call = local.copy(id = dto.id?.toString() ?: local.id)
             _active.value = call
             call
@@ -150,6 +227,44 @@ class CallsRepository @Inject constructor(
         if (completedLocally != null) _history.update { listOf(completedLocally) + it }
     }
 
+    /** True once there's a backend call id to attach a recording to. */
+    fun hasActiveCallId(): Boolean = activeCallId != null
+
+    /**
+     * Upload an agent-picked recording file (content:// uri) for the active call.
+     * Must be called BEFORE clearActive() (it uses the active call id). Reads the
+     * file bytes via ContentResolver and POSTs them as multipart.
+     */
+    suspend fun uploadRecording(uri: Uri): Result<Unit> {
+        val id = activeCallId
+            ?: return Result.failure(IllegalStateException("No active call to attach a recording to."))
+        return try {
+            val resolver = context.contentResolver
+            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return Result.failure(IllegalStateException("Couldn't read the selected file."))
+            val mime = resolver.getType(uri) ?: "audio/*"
+            val fileName = queryDisplayName(uri) ?: "recording"
+            val body = bytes.toRequestBody(mime.toMediaTypeOrNull())
+            val part = MultipartBody.Part.createFormData("file", fileName, body)
+            dialerApi.uploadRecording(id, part)
+            Log.d(TAG, "calls/$id recording uploaded (${bytes.size} bytes, $fileName)")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "calls/$id recording upload failed", e)
+            Result.failure(e)
+        }
+    }
+
+    /** Resolve a content:// uri's display name for the multipart filename. */
+    private fun queryDisplayName(uri: Uri): String? = try {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+        }
+    } catch (_: Exception) {
+        null
+    }
+
     fun clearActive() {
         _active.value = null
         activeCallId = null
@@ -175,7 +290,7 @@ class CallsRepository @Inject constructor(
         return Call(
             id = callId.toString(),
             leadId = resolvedLeadId ?: 0,
-            leadName = leadName ?: "Unknown",
+            leadName = resolvedName ?: "Unknown",
             leadPhone = resolvedPhone.orEmpty(),
             campaignName = campaignName.orEmpty(),
             direction = directionFromApi(direction),

@@ -21,6 +21,9 @@ data class MeResponse(
     val status: String? = null,
     @SerialName("caller_id_number") val callerIdNumber: String? = null,
     @SerialName("mobile_number") val mobileNumber: String? = null,
+    // Backend-assigned dial mode: "sip" | "sim" | "voip". The agent does not
+    // choose this; whoever provisions the agent sets it.
+    @SerialName("call_mode") val callMode: String? = null,
     @SerialName("avatar_url") val avatarUrl: String? = null,
     @SerialName("extension") val extension: String? = null,
 

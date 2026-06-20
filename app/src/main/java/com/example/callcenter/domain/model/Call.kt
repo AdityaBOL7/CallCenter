@@ -18,7 +18,7 @@ enum class CallDirection { OUTGOING, INCOMING }
 enum class CallRouteType(val label: String) {
     SIP("SIP / VOIP"),
     PSTN("PSTN (Carrier)"),
-    MOBILE("Mobile dial"),
+    MOBILE("SIM"),
 }
 
 enum class Disposition(val label: String) {

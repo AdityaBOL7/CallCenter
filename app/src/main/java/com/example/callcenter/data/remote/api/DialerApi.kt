@@ -5,6 +5,8 @@ import com.example.callcenter.data.remote.dto.CallDto
 import com.example.callcenter.data.remote.dto.CallbackDto
 import com.example.callcenter.data.remote.dto.CampaignDto
 import com.example.callcenter.data.remote.dto.ChangeStatusRequest
+import com.example.callcenter.data.remote.dto.CreateCampaignRequest
+import com.example.callcenter.data.remote.dto.UpdateCampaignRequest
 import com.example.callcenter.data.remote.dto.CompleteCallbackRequest
 import com.example.callcenter.data.remote.dto.HangupRequest
 import com.example.callcenter.data.remote.dto.LeadDto
@@ -16,11 +18,15 @@ import com.example.callcenter.data.remote.dto.UpdateCallRequest
 import com.example.callcenter.data.remote.dto.UpdateCallbackRequest
 import com.example.callcenter.data.remote.dto.UpdateLeadRequest
 import kotlinx.serialization.json.JsonElement
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.Multipart
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.Part
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -41,6 +47,14 @@ interface DialerApi {
     /** Server-side logout: clears FCM token, closes status interval, sets offline. */
     @POST("api/dialer/auth/logout/")
     suspend fun logout()
+
+    /**
+     * Dashboard KPIs (totals + agent_performance + recent_calls). Returned as a
+     * raw JsonElement so the repo can log the exact shape and parse tolerantly
+     * (the backend's field names aren't fully documented).
+     */
+    @GET("api/dialer/dashboard/")
+    suspend fun getDashboard(): JsonElement
 
     // ---- Leads ----
 
@@ -82,6 +96,14 @@ interface DialerApi {
     @POST("api/dialer/calls/")
     suspend fun startCall(@Body body: StartCallRequest): CallDto
 
+    /**
+     * SIM-mode dial: log a Call row before the app fires the native ACTION_CALL.
+     * Requires the agent's call_mode == sim (else 409 wrong_call_mode). Returns a
+     * Call with mode=sim, status=initiating, from_number=agent.mobile_number.
+     */
+    @POST("api/dialer/calls/sim-dial/")
+    suspend fun simDial(@Body body: StartCallRequest): CallDto
+
     /** In-call update: status transitions + mute/hold/recording/note. */
     @PATCH("api/dialer/calls/{id}/")
     suspend fun updateCall(@Path("id") id: Int, @Body body: UpdateCallRequest): CallDto
@@ -92,6 +114,19 @@ interface DialerApi {
 
     @GET("api/dialer/calls/{id}/")
     suspend fun getCall(@Path("id") id: Int): CallDto
+
+    /**
+     * Upload the agent's device-side recording for a call (multipart).
+     * Field `file` is required; `duration_seconds` is optional. Accepted audio:
+     * mp3/m4a/wav/amr/ogg/3gp/aac/opus, max 100 MiB.
+     */
+    @Multipart
+    @POST("api/dialer/calls/{id}/recording/")
+    suspend fun uploadRecording(
+        @Path("id") id: Int,
+        @Part file: MultipartBody.Part,
+        @Part("duration_seconds") durationSeconds: RequestBody? = null,
+    ): CallDto
 
     /** Call history (bare array or DRF page envelope; repo normalises). */
     @GET("api/dialer/calls/")
@@ -118,6 +153,10 @@ interface DialerApi {
     @POST("api/dialer/callbacks/")
     suspend fun scheduleCallback(@Body body: ScheduleCallbackRequest): CallbackDto
 
+    /** Retrieve a single callback by id. */
+    @GET("api/dialer/callbacks/{id}/")
+    suspend fun getCallback(@Path("id") id: Int): CallbackDto
+
     @PATCH("api/dialer/callbacks/{id}/")
     suspend fun updateCallback(@Path("id") id: Int, @Body body: UpdateCallbackRequest): CallbackDto
 
@@ -143,6 +182,22 @@ interface DialerApi {
 
     @GET("api/dialer/campaigns/{id}/")
     suspend fun getCampaign(@Path("id") id: Int): CampaignDto
+
+    /** Create a campaign (admin / company-owner). */
+    @POST("api/dialer/campaigns/")
+    suspend fun createCampaign(@Body body: CreateCampaignRequest): CampaignDto
+
+    /** Partial update (admin / company-owner). */
+    @PATCH("api/dialer/campaigns/{id}/")
+    suspend fun updateCampaign(@Path("id") id: Int, @Body body: UpdateCampaignRequest): CampaignDto
+
+    /** Delete a campaign (admin / company-owner). */
+    @DELETE("api/dialer/campaigns/{id}/")
+    suspend fun deleteCampaign(@Path("id") id: Int)
+
+    /** Recompute target/contacted/conversion counts from the Lead table. */
+    @POST("api/dialer/campaigns/{id}/refresh-stats/")
+    suspend fun refreshCampaignStats(@Path("id") id: Int): CampaignDto
 
     // ---- Notifications (in-app inbox; no FCM) ----
 

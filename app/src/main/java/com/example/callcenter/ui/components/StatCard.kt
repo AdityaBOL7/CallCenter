@@ -33,9 +33,8 @@ import com.example.callcenter.ui.theme.AccentSky
 import com.example.callcenter.ui.theme.AccentViolet
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Danger
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Success
 import com.example.callcenter.ui.theme.Warn
 
@@ -78,9 +77,9 @@ fun StatCard(
                 Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
             }
             Spacer(Modifier.height(10.dp))
-            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Ink900)
+            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AppColor.ink900)
             Spacer(Modifier.height(2.dp))
-            Text(label, fontSize = 12.sp, color = Ink500, fontWeight = FontWeight.SemiBold)
+            Text(label, fontSize = 12.sp, color = AppColor.ink500, fontWeight = FontWeight.SemiBold)
         }
     }
 }

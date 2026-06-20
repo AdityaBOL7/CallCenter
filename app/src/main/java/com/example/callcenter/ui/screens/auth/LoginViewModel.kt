@@ -2,9 +2,11 @@ package com.example.callcenter.ui.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.callcenter.data.repository.AgentRepository
 import com.example.callcenter.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +33,7 @@ data class LoginUiState(
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val authRepo: AuthRepository,
+    private val agentRepo: AgentRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LoginUiState())
@@ -106,6 +109,16 @@ class LoginViewModel @Inject constructor(
             _state.update { it.copy(submitting = true, error = null) }
             authRepo.verifyOtp(s.identifier, s.otp)
                 .onSuccess {
+                    // Warm the agent profile while still on the login screen. The
+                    // first me/ after login often races the token-refresh (raw JWT
+                    // → Fernet-wrapped) and gets cancelled; retry until we get a
+                    // real profile so call_mode/status are known before the
+                    // dashboard needs them. Bounded so a genuine failure still ends.
+                    var attempts = 0
+                    while (attempts < 3 && !agentRepo.loadProfile(force = true).isSuccess) {
+                        attempts++
+                        delay(400)
+                    }
                     _state.update { it.copy(submitting = false) }
                     onSuccess()
                 }

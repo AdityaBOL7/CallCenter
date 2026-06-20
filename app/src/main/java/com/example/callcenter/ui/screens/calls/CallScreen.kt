@@ -40,8 +40,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.callcenter.domain.model.CallStatus
+import com.example.callcenter.telephony.PhoneCaller
 import com.example.callcenter.ui.components.AppBottomSheet
 import com.example.callcenter.ui.components.AppButton
 import com.example.callcenter.ui.theme.AccentRose
@@ -73,6 +78,19 @@ fun CallScreen(
     viewModel: CallViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+
+    // SIM mode: place the carrier call via the device dialer, then go STRAIGHT to
+    // the feedback/disposition page — no in-app call screen. The real call lives in
+    // the phone's own dialer; when the agent returns they're already on Feedback.
+    if (viewModel.isSim) {
+        SimDialLauncher(
+            phone = state.customerPhone,
+            claimDial = viewModel::claimSimDial,
+            onPlaced = viewModel::markSimConnected,
+            onProceed = { viewModel.hangup(onEnded) },
+        )
+        return
+    }
 
     Box(
         modifier = Modifier
@@ -126,6 +144,81 @@ fun CallScreen(
             )
         }
     }
+}
+
+/**
+ * SIM mode: places the real carrier call via the device dialer, then waits for
+ * the agent to RETURN from the call before proceeding to the feedback page —
+ * there is no in-app call screen for SIM.
+ *
+ * Why wait for return: the system dialer takes a few hundred ms to come to the
+ * foreground, so navigating to disposition synchronously after firing the call
+ * would briefly flash the feedback screen before the dialer covers it. Instead we
+ * fire the call, let the dialer take over (app goes to background), and only
+ * navigate to disposition on the next ON_RESUME — i.e. when the agent comes back.
+ */
+@Composable
+private fun SimDialLauncher(
+    phone: String,
+    claimDial: () -> Boolean,
+    onPlaced: () -> Unit,
+    onProceed: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    // Set true once the call has been fired and the dialer has taken over; the
+    // next ON_RESUME (agent returns) then proceeds to the feedback page.
+    var awaitingReturn by remember { mutableStateOf(false) }
+    var failedNoDialer by remember { mutableStateOf(false) }
+
+    fun fireDial() {
+        val placed = PhoneCaller.call(context, phone)
+        if (placed) {
+            onPlaced()
+            awaitingReturn = true
+        } else {
+            // Couldn't place the call (blank number / denied permission / no
+            // dialer) — there's nothing to return from, so go to feedback now so
+            // the agent can disposition it (e.g. "wrong number").
+            failedNoDialer = true
+        }
+    }
+
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) fireDial() else failedNoDialer = true }
+
+    // Place the carrier call exactly once (claimDial() guards rotation/recompose).
+    LaunchedEffect(Unit) {
+        if (!claimDial()) return@LaunchedEffect
+        if (phone.isNotBlank() && PhoneCaller.canCall(context)) {
+            fireDial()
+        } else if (phone.isNotBlank()) {
+            permissionLauncher.launch(android.Manifest.permission.CALL_PHONE)
+        } else {
+            failedNoDialer = true
+        }
+    }
+
+    // If the dial couldn't be placed, go straight to feedback (nothing to wait for).
+    LaunchedEffect(failedNoDialer) {
+        if (failedNoDialer) onProceed()
+    }
+
+    // Once the call was fired, proceed to feedback the moment the agent returns
+    // to the app (ON_RESUME after the dialer/call finishes).
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner, awaitingReturn) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (awaitingReturn && event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                onProceed()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // No visible UI — the phone's own dialer is the only screen the agent sees.
+    Box(Modifier.fillMaxSize().background(AppColor.bg))
 }
 
 @Composable

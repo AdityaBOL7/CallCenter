@@ -28,8 +28,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
+import com.example.callcenter.ui.theme.AppColor
 
 @Composable
 fun QuickActionCard(
@@ -62,10 +61,10 @@ fun QuickActionCard(
             }
             Spacer(Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink900)
-                Text(subtitle, fontSize = 11.sp, color = Ink500)
+                Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AppColor.ink900)
+                Text(subtitle, fontSize = 11.sp, color = AppColor.ink500)
             }
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Ink500)
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = AppColor.ink500)
         }
     }
 }

@@ -34,9 +34,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -63,7 +62,7 @@ fun DateTimeField(
         Text(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelMedium,
-            color = Ink500,
+            color = AppColor.ink500,
             modifier = Modifier.padding(bottom = 6.dp),
         )
         Row(
@@ -78,7 +77,7 @@ fun DateTimeField(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Icon(Icons.Outlined.CalendarToday, contentDescription = null, tint = Brand500, modifier = Modifier.size(20.dp))
-            Text(display, color = if (value == null) Ink500 else Ink900)
+            Text(display, color = if (value == null) AppColor.ink500 else AppColor.ink900)
         }
     }
 

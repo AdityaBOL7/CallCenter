@@ -15,9 +15,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
-import com.example.callcenter.ui.theme.Ink400
-import com.example.callcenter.ui.theme.Ink500
 
 @Composable
 fun AppInput(
@@ -40,7 +39,7 @@ fun AppInput(
             Text(
                 text = label.uppercase(),
                 style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                color = Ink500,
+                color = AppColor.ink500,
                 modifier = Modifier.padding(bottom = 6.dp),
             )
         }
@@ -48,7 +47,7 @@ fun AppInput(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(placeholder, color = Ink400) },
+            placeholder = { Text(placeholder, color = AppColor.ink400) },
             leadingIcon = if (leadingIcon != null) {
                 { Icon(leadingIcon, contentDescription = null) }
             } else null,

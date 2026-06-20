@@ -38,11 +38,23 @@ class CallbacksRepository @Inject constructor(
     fun observeAll(): Flow<List<Callback>> =
         _items.map { list -> list.sortedBy { it.scheduledAt } }
 
+    /** Cached lookup (no network). Use [fetchById] to force a backend read. */
     fun byId(id: Int): Callback? = _items.value.firstOrNull { it.id == id }
 
-    /** Refresh the callback list from the backend. */
-    suspend fun refresh(): Result<Unit> = try {
-        val element = dialerApi.listCallbacks()
+    /**
+     * Refresh the callback list from the backend. Optional filters mirror
+     * GET /callbacks/?status=&from=&to= ([from]/[to] are ISO-8601 timestamps).
+     */
+    suspend fun refresh(
+        status: CallbackStatus? = null,
+        from: LocalDateTime? = null,
+        to: LocalDateTime? = null,
+    ): Result<Unit> = try {
+        val element = dialerApi.listCallbacks(
+            status = status?.toApi(),
+            from = from?.let(::toIsoUtc),
+            to = to?.let(::toIsoUtc),
+        )
         val dtos = parseList(element)
         Log.d(TAG, "callbacks/ ← ${dtos.size} items")
         _items.value = dtos.mapNotNull { it.toCallback() }
@@ -50,6 +62,14 @@ class CallbacksRepository @Inject constructor(
     } catch (e: Exception) {
         Log.e(TAG, "callbacks/ failed", e)
         Result.failure(e)
+    }
+
+    /** Fetch a single callback from the backend (GET /callbacks/:id/) and cache it. */
+    suspend fun fetchById(id: Int): Callback? = try {
+        dialerApi.getCallback(id).toCallback()?.also { cb -> _items.update { it.upsert(cb) } }
+    } catch (e: Exception) {
+        Log.e(TAG, "callbacks/$id failed", e)
+        null
     }
 
     suspend fun schedule(
@@ -79,11 +99,25 @@ class CallbacksRepository @Inject constructor(
         }
     }
 
-    suspend fun update(id: Int, at: LocalDateTime, note: String?) {
+    /**
+     * Update / reschedule a callback (PATCH /callbacks/:id/). Any argument left
+     * null is omitted from the request. [status] lets a callback be moved back to
+     * pending, etc.
+     */
+    suspend fun update(
+        id: Int,
+        at: LocalDateTime? = null,
+        note: String? = null,
+        status: CallbackStatus? = null,
+    ) {
         try {
             val dto = dialerApi.updateCallback(
                 id,
-                UpdateCallbackRequest(scheduledAt = toIsoUtc(at), note = note),
+                UpdateCallbackRequest(
+                    scheduledAt = at?.let(::toIsoUtc),
+                    note = note,
+                    status = status?.toApi(),
+                ),
             )
             dto.toCallback()?.let { cb -> _items.update { it.upsert(cb) } }
         } catch (e: Exception) {
@@ -160,6 +194,13 @@ class CallbacksRepository @Inject constructor(
         "completed", "complete" -> CallbackStatus.COMPLETED
         "cancelled", "canceled" -> CallbackStatus.CANCELLED
         else -> CallbackStatus.PENDING
+    }
+
+    private fun CallbackStatus.toApi(): String = when (this) {
+        CallbackStatus.PENDING -> "pending"
+        CallbackStatus.OVERDUE -> "overdue"
+        CallbackStatus.COMPLETED -> "completed"
+        CallbackStatus.CANCELLED -> "cancelled"
     }
 
     /** Local date-time → ISO-8601 UTC ("…Z"), the format the backend expects. */

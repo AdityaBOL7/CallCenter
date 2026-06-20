@@ -29,11 +29,13 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.WorkOutline
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -57,11 +59,11 @@ import com.example.callcenter.ui.theme.AppGradients
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
 import com.example.callcenter.ui.theme.Danger
-import com.example.callcenter.ui.theme.Emerald50
 import com.example.callcenter.ui.theme.HeaderShape
 import com.example.callcenter.ui.theme.Success
 import com.example.callcenter.ui.theme.Warn
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
     onOpenLeads: () -> Unit,
@@ -74,6 +76,7 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val refreshing by viewModel.refreshing.collectAsState()
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -82,14 +85,20 @@ fun DashboardScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             DashboardHero(
                 agentName = state.agent?.name ?: "Agent",
+                callModeLabel = state.agent?.callMode?.label,
                 status = state.status,
                 onStatusChange = viewModel::setStatus,
                 onHistory = onOpenHistory,
                 onNotifications = onOpenNotifications,
             )
-            Column(
+            PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = viewModel::pullRefresh,
+                modifier = Modifier.weight(1f),
+            ) {
+                Column(
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 16.dp),
             ) {
@@ -117,6 +126,7 @@ fun DashboardScreen(
                     onOpenSettings = onOpenSettings,
                 )
                 Spacer(Modifier.height(24.dp))
+                }
             }
         }
     }
@@ -125,6 +135,7 @@ fun DashboardScreen(
 @Composable
 private fun DashboardHero(
     agentName: String,
+    callModeLabel: String?,
     status: AgentStatus,
     onStatusChange: (AgentStatus) -> Unit,
     onHistory: () -> Unit,
@@ -156,12 +167,18 @@ private fun DashboardHero(
                 Spacer(Modifier.size(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Welcome back", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
-                    Text(
-                        text = agentName,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = agentName,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                        )
+                        if (callModeLabel != null) {
+                            Spacer(Modifier.size(8.dp))
+                            CallModeChip(label = callModeLabel)
+                        }
+                    }
                 }
                 Box(
                     modifier = Modifier
@@ -204,6 +221,27 @@ private fun DashboardHero(
 private val WindowPaddings = androidx.compose.foundation.layout.PaddingValues(
     start = 16.dp, end = 16.dp, top = 36.dp, bottom = 14.dp,
 )
+
+/** Small badge showing the agent's backend-assigned dial mode (SIP / SIM). */
+@Composable
+private fun CallModeChip(label: String) {
+    // CallRouteType.SIP's label is "SIP / VOIP" — show just "SIP" on the chip.
+    val short = if (label.startsWith("SIP", ignoreCase = true)) "SIP" else label
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.22f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(
+            text = short.uppercase(),
+            color = Color.White,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+        )
+    }
+}
 
 @Composable
 private fun StatusSelector(current: AgentStatus, onChange: (AgentStatus) -> Unit) {
@@ -288,7 +326,8 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
                     modifier = Modifier
                         .size(52.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Emerald50),
+                        // Success tint over the theme surface (works in dark too).
+                        .background(Success.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -363,31 +402,31 @@ private fun StatGrid(state: DashboardUiState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OverviewTile(
-                label = "Total calls",
-                value = state.stats.totalCalls.toString(),
-                icon = Icons.Outlined.Phone,
+                label = "Total leads",
+                value = state.stats.totalLeads.toString(),
+                icon = Icons.Outlined.People,
                 tint = Brand600,
                 modifier = Modifier.weight(1f),
             )
             OverviewTile(
-                label = "Missed",
-                value = state.stats.missedCalls.toString(),
-                icon = Icons.Outlined.CallMissed,
-                tint = Danger,
+                label = "Calls today",
+                value = state.stats.totalCalls.toString(),
+                icon = Icons.Outlined.Phone,
+                tint = AccentSky,
                 modifier = Modifier.weight(1f),
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OverviewTile(
-                label = "Follow-ups",
-                value = state.stats.callbacksDue.toString(),
+                label = "Recordings",
+                value = state.stats.recordings.toString(),
                 icon = Icons.Outlined.Schedule,
                 tint = Warn,
                 modifier = Modifier.weight(1f),
             )
             OverviewTile(
-                label = "Conversions",
-                value = state.stats.conversions.toString(),
+                label = "Talk time",
+                value = state.stats.talkTime,
                 icon = Icons.Outlined.TrendingUp,
                 tint = Success,
                 modifier = Modifier.weight(1f),

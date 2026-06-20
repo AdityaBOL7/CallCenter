@@ -41,6 +41,9 @@ data class CallDto(
     @SerialName("lead_id") val leadId: Int? = null,
     val lead: Int? = null,
     @SerialName("lead_name") val leadName: String? = null,
+    // The backend nests the lead's identity under lead_summary
+    // (e.g. {"lead":107,"lead_summary":{"id":107,"name":"Dev","phone":"..."}}).
+    @SerialName("lead_summary") val leadSummary: LeadSummary? = null,
     @SerialName("to_number") val toNumber: String? = null,
     @SerialName("from_number") val fromNumber: String? = null,
     @SerialName("phone") val phone: String? = null,
@@ -59,8 +62,18 @@ data class CallDto(
     @SerialName("ended_at") val endedAt: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
 ) {
+    @Serializable
+    data class LeadSummary(
+        val id: Int? = null,
+        val name: String? = null,
+        val phone: String? = null,
+        val status: String? = null,
+    )
+
     val resolvedLeadId: Int?
-        get() = leadId ?: lead
+        get() = leadId ?: lead ?: leadSummary?.id
+    val resolvedName: String?
+        get() = leadName ?: leadSummary?.name
     val resolvedPhone: String?
-        get() = phone ?: toNumber ?: fromNumber
+        get() = phone ?: leadSummary?.phone ?: toNumber ?: fromNumber
 }

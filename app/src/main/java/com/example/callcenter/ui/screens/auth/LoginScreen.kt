@@ -58,9 +58,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.AppGradients
-import com.example.callcenter.ui.theme.Brand50
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
+import com.example.callcenter.ui.theme.Danger
 import com.example.callcenter.ui.theme.OrbIndigo
 import com.example.callcenter.ui.theme.OrbPink
 import com.example.callcenter.ui.theme.OrbSky
@@ -173,7 +173,7 @@ private fun BrandMark() {
                 Spacer(Modifier.size(6.dp))
                 Text(
                     "SYSTEMS ONLINE",
-                    color = Color(0xFF047857),
+                    color = Success,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.2.sp,
@@ -412,7 +412,9 @@ private fun OtpBoxes(
                         .weight(1f)
                         .height(52.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(if (filled) Brand50 else AppColor.ink50)
+                        // Brand tint over the theme background (a static light
+                        // Brand50 fill would wash out the dark-mode ink900 text).
+                        .background(if (filled) Brand500.copy(alpha = 0.12f) else AppColor.ink50)
                         .border(
                             width = if (active) 2.dp else 1.dp,
                             color = if (active || filled) Brand500 else Color.Transparent,
@@ -475,14 +477,15 @@ private fun InfoBanner(message: String) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFFECFDF5))
-            .border(1.dp, Color(0xFFA7F3D0), RoundedCornerShape(12.dp))
+            // Translucent tint over the theme background so it reads in both modes.
+            .background(Success.copy(alpha = 0.12f))
+            .border(1.dp, Success.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = Color(0xFF059669), modifier = Modifier.size(16.dp))
+        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = Success, modifier = Modifier.size(16.dp))
         Spacer(Modifier.size(8.dp))
-        Text(message, color = Color(0xFF047857), fontSize = 13.sp)
+        Text(message, color = Success, fontSize = 13.sp)
     }
 }
 
@@ -503,14 +506,15 @@ private fun ErrorBanner(message: String) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFFFEF2F2))
-            .border(1.dp, Color(0xFFFECACA), RoundedCornerShape(12.dp))
+            // Translucent tint over the theme background so it reads in both modes.
+            .background(Danger.copy(alpha = 0.12f))
+            .border(1.dp, Danger.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = Color(0xFFE11D48), modifier = Modifier.size(16.dp))
+        Icon(Icons.Outlined.ErrorOutline, contentDescription = null, tint = Danger, modifier = Modifier.size(16.dp))
         Spacer(Modifier.size(8.dp))
-        Text(message, color = Color(0xFFB91C1C), fontSize = 13.sp)
+        Text(message, color = Danger, fontSize = 13.sp)
     }
 }
 

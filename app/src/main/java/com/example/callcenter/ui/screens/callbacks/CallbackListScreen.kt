@@ -27,7 +27,9 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -47,6 +49,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.callcenter.data.repository.CallbacksRepository
 import com.example.callcenter.data.repository.CallsRepository
+import com.example.callcenter.data.repository.AgentRepository
 import com.example.callcenter.data.repository.LeadsRepository
 import com.example.callcenter.domain.model.CallRouteType
 import com.example.callcenter.domain.model.Callback
@@ -65,6 +68,7 @@ import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -72,27 +76,58 @@ class CallbackListViewModel @Inject constructor(
     private val callbacksRepo: CallbacksRepository,
     private val leadsRepo: LeadsRepository,
     private val callsRepo: CallsRepository,
+    private val agentRepo: AgentRepository,
 ) : ViewModel() {
-    data class State(val items: List<Callback> = emptyList(), val loading: Boolean = true)
+    data class State(
+        val items: List<Callback> = emptyList(),
+        val loading: Boolean = true,
+        val refreshing: Boolean = false,
+    )
     private val _state = MutableStateFlow(State())
     val state = _state.asStateFlow()
 
     init {
         viewModelScope.launch {
-            callbacksRepo.observeAll().collect { _state.value = State(items = it, loading = false) }
+            callbacksRepo.observeAll().collect { list ->
+                _state.update { it.copy(items = list, loading = false) }
+            }
         }
         viewModelScope.launch { callbacksRepo.refresh() }
     }
 
-    fun startCall(callback: Callback, onCall: (leadId: Int, callId: String, route: String) -> Unit) {
+    /** Pull-to-refresh: re-fetch follow-ups without blanking the visible list. */
+    fun pullRefresh() {
+        viewModelScope.launch {
+            _state.update { it.copy(refreshing = true) }
+            try {
+                callbacksRepo.refresh()
+            } finally {
+                _state.update { it.copy(refreshing = false) }
+            }
+        }
+    }
+
+    fun startCall(
+        callback: Callback,
+        onCall: (leadId: Int, callId: String, route: String) -> Unit,
+        onNotAvailable: () -> Unit = {},
+    ) {
         viewModelScope.launch {
             val lead = leadsRepo.byId(callback.leadId) ?: return@launch
-            val call = callsRepo.initiate(lead, CallRouteType.SIP)
+            agentRepo.loadProfile()
+            // Agents may only call while Available; use their assigned dial mode.
+            if (!callsRepo.canCall()) {
+                onNotAvailable()
+                return@launch
+            }
+            val route = agentRepo.agent.value?.callMode ?: CallRouteType.SIP
+            val call = callsRepo.initiate(lead, route)
             onCall(lead.id, call.id, call.routeType.name)
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CallbackListScreen(
     onSchedule: (Int) -> Unit,
@@ -100,6 +135,7 @@ fun CallbackListScreen(
     viewModel: CallbackListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val now = LocalDateTime.now()
     val isOverdue: (Callback) -> Boolean = { it.status == CallbackStatus.OVERDUE || it.scheduledAt.isBefore(now) }
     val overdueCount = state.items.count(isOverdue)
@@ -119,20 +155,41 @@ fun CallbackListScreen(
                     if (overdueCount > 0) OverdueHeaderPill(count = overdueCount)
                 },
             )
-            when {
-                state.loading -> LoadingState()
-                state.items.isEmpty() -> EmptyState(title = "No follow-ups scheduled")
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            PullToRefreshBox(
+                isRefreshing = state.refreshing,
+                onRefresh = viewModel::pullRefresh,
+                modifier = Modifier.weight(1f),
+            ) {
+                when {
+                    state.loading -> LoadingState()
+                    // Empty state inside a LazyColumn so the pull gesture still works.
+                    state.items.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                        item { EmptyState(title = "No follow-ups scheduled", modifier = Modifier.fillParentMaxSize()) }
+                    }
+                    else -> LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
                     items(sorted, key = { it.id }) { cb ->
                         CallbackCard(
                             cb = cb,
                             overdue = isOverdue(cb),
-                            onCall = { viewModel.startCall(cb, onCall) },
+                            onCall = {
+                                viewModel.startCall(
+                                    callback = cb,
+                                    onCall = onCall,
+                                    onNotAvailable = {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Set your status to Available to start calling.",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                )
+                            },
                             onReschedule = { onSchedule(cb.leadId) },
                         )
+                        }
                     }
                 }
             }

@@ -50,20 +50,51 @@ class DashboardViewModel @Inject constructor(
             }
         }
         viewModelScope.launch { agentRepo.loadProfile() }
+        viewModelScope.launch { agentRepo.loadDashboard() }
         viewModelScope.launch { leadsRepo.refresh() }
+    }
+
+    /** Pull-to-refresh / manual refresh of the dashboard KPIs. */
+    fun refreshStats() {
+        viewModelScope.launch { agentRepo.loadDashboard() }
+    }
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing = _refreshing.asStateFlow()
+
+    /** Pull-to-refresh: KPIs + leads together. */
+    fun pullRefresh() {
+        viewModelScope.launch {
+            _refreshing.value = true
+            try {
+                agentRepo.loadDashboard()
+                leadsRepo.refresh()
+            } finally {
+                _refreshing.value = false
+            }
+        }
     }
 
     fun setStatus(status: AgentStatus) {
         viewModelScope.launch { agentRepo.setStatus(status) }
     }
 
-    fun getNextLead(onCall: (Int, String, String) -> Unit) {
+    fun getNextLead(
+        onCall: (Int, String, String) -> Unit,
+        onNotAvailable: () -> Unit = {},
+    ) {
         viewModelScope.launch {
+            // Agents may only call while Available.
+            if (!callsRepo.canCall()) {
+                onNotAvailable()
+                return@launch
+            }
             _state.update { it.copy(gettingNext = true) }
             val lead = leadsRepo.nextLead()
             _state.update { it.copy(gettingNext = false, nextLead = lead) }
             if (lead != null) {
-                val call = callsRepo.initiate(lead, CallRouteType.SIP)
+                val route = agentRepo.agent.value?.callMode ?: CallRouteType.SIP
+                val call = callsRepo.initiate(lead, route)
                 onCall(lead.id, call.id, call.routeType.name)
             }
         }

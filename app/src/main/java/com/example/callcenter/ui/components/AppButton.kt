@@ -28,13 +28,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand600
 import com.example.callcenter.ui.theme.Brand700
 import com.example.callcenter.ui.theme.Danger
-import com.example.callcenter.ui.theme.Ink100
-import com.example.callcenter.ui.theme.Ink50
-import com.example.callcenter.ui.theme.Ink800
-import com.example.callcenter.ui.theme.Ink900
 import com.example.callcenter.ui.theme.Success
 
 enum class AppButtonVariant { Primary, Secondary, Danger, Success, Ghost }
@@ -59,12 +56,17 @@ fun AppButton(
         label = "appButtonScale",
     )
 
+    // Brand/Danger/Success keep fixed white-on-color contrast in both themes;
+    // Secondary/Ghost are neutral fills and must follow the theme.
+    val scheme = androidx.compose.material3.MaterialTheme.colorScheme
     val (bg, fg) = when (variant) {
         AppButtonVariant.Primary -> (if (pressed) Brand700 else Brand600) to Color.White
-        AppButtonVariant.Secondary -> (if (pressed) Ink900 else Ink800) to Color.White
+        AppButtonVariant.Secondary ->
+            (if (pressed) scheme.inverseSurface.copy(alpha = 0.9f) else scheme.inverseSurface) to scheme.inverseOnSurface
         AppButtonVariant.Danger -> Danger to Color.White
         AppButtonVariant.Success -> Success to Color.White
-        AppButtonVariant.Ghost -> (if (pressed) Ink100 else Ink50) to Ink900
+        AppButtonVariant.Ghost ->
+            (if (pressed) AppColor.ink100 else AppColor.ink50) to AppColor.ink900
     }
 
     val padding: PaddingValues = when (size) {

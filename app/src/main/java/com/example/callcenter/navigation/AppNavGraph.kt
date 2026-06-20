@@ -110,6 +110,13 @@ fun AppNavGraph(rootViewModel: RootViewModel = hiltViewModel()) {
                 callId = callId,
                 leadId = leadId,
                 onDone = { rootNav.popBackStack(Dest.MainTabs.route, false) },
+                onNextCall = { nextLeadId, nextCallId, route ->
+                    // Auto-dial: jump straight to the next call, dropping this
+                    // disposition off the back stack so the loop doesn't pile up.
+                    rootNav.navigate(Dest.Call.build(nextCallId, nextLeadId, route)) {
+                        popUpTo(Dest.Disposition.route) { inclusive = true }
+                    }
+                },
             )
         }
         composable(Dest.ScheduleCallback.route) { entry ->
@@ -187,6 +194,9 @@ private fun TabsNavHost(
         composable(Dest.Leads.route) {
             LeadListScreen(
                 onLeadClick = { rootNav.navigate(Dest.LeadDetail.build(it)) },
+                onStartCall = { leadId, callId, route ->
+                    rootNav.navigate(Dest.Call.build(callId, leadId, route))
+                },
             )
         }
         composable(Dest.Callbacks.route) {

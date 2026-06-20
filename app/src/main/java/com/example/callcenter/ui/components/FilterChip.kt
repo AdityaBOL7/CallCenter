@@ -12,11 +12,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.callcenter.ui.theme.Brand100
+import androidx.compose.material3.MaterialTheme
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
-import com.example.callcenter.ui.theme.Brand700
-import com.example.callcenter.ui.theme.Ink200
-import com.example.callcenter.ui.theme.Ink700
 
 @Composable
 fun AppFilterChip(
@@ -25,9 +23,9 @@ fun AppFilterChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (selected) Brand100 else androidx.compose.ui.graphics.Color.White
-    val fg = if (selected) Brand700 else Ink700
-    val borderColor = if (selected) Brand500 else Ink200
+    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer else AppColor.surface
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else AppColor.ink700
+    val borderColor = if (selected) Brand500 else AppColor.ink200
     androidx.compose.foundation.layout.Box(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))

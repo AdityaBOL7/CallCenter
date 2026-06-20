@@ -30,9 +30,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Danger
-import com.example.callcenter.ui.theme.Ink500
-import com.example.callcenter.ui.theme.Ink900
 
 @Composable
 fun LoadingState(modifier: Modifier = Modifier) {
@@ -64,7 +63,7 @@ fun EmptyState(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp), tint = Ink500)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp), tint = AppColor.ink500)
         }
         Spacer(Modifier.height(16.dp))
         Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground)
@@ -128,7 +127,7 @@ fun SectionHeader(
             text = title,
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
-            color = Ink900,
+            color = AppColor.ink900,
         )
         trailing?.invoke()
     }

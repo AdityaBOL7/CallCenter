@@ -17,6 +17,10 @@ data class Agent(
     val avatarUrl: String? = null,
     val status: AgentStatus = AgentStatus.AVAILABLE,
     val campaignIds: List<Int> = emptyList(),
+    // Backend-assigned dial mode (from me/.call_mode). The agent uses whatever is
+    // set here; they don't pick it. Defaults to SIP when unspecified.
+    val callMode: CallRouteType = CallRouteType.SIP,
+    val mobileNumber: String? = null,
 )
 
 data class AgentStats(
@@ -26,6 +30,10 @@ data class AgentStats(
     val callbacksDue: Int = 0,
     val conversions: Int = 0,
     val newLeads: Int = 0,
+    // Additional KPIs from the dashboard totals (not "today"-scoped).
+    val totalLeads: Int = 0,
+    val recordings: Int = 0,
+    val talkTime: String = "0m",
 ) {
     val connectionRate: Float
         get() = if (totalCalls == 0) 0f else connectedCalls.toFloat() / totalCalls
