@@ -255,10 +255,17 @@ class AgentRepository @Inject constructor(
         raw.removePrefix("DEMO::").trim().ifBlank { raw }
 
     /** Map the backend call_mode ("sip" | "sim" | "voip") to a route type. */
-    private fun callModeFromApi(mode: String?): CallRouteType = when (mode?.lowercase()?.trim()) {
-        "sim" -> CallRouteType.MOBILE
-        // "sip" and "voip" both run the in-app call screen for now.
-        else -> CallRouteType.SIP
+    private fun callModeFromApi(mode: String?): CallRouteType {
+        val route = when (mode?.lowercase()?.trim()) {
+            "sim" -> CallRouteType.MOBILE
+            // "sip" and "voip" both run the in-app call screen for now.
+            else -> CallRouteType.SIP
+        }
+        // Diagnostic: surface the EXACT raw value so we can tell whether an agent
+        // dialing via the wrong path is a backend data issue (call_mode actually
+        // "sim") or a mapping issue. Remove once call_mode is confirmed stable.
+        Log.d(TAG, "me/ call_mode raw=${mode?.let { "\"$it\"" } ?: "null"} → route=$route")
+        return route
     }
 
     private fun statusFromApi(api: String): AgentStatus = when (api.lowercase()) {

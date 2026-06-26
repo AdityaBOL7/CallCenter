@@ -148,14 +148,18 @@ fun CallScreen(
 
 /**
  * SIM mode: places the real carrier call via the device dialer, then waits for
- * the agent to RETURN from the call before proceeding to the feedback page —
+ * the carrier call to ACTUALLY END before proceeding to the feedback page —
  * there is no in-app call screen for SIM.
  *
- * Why wait for return: the system dialer takes a few hundred ms to come to the
- * foreground, so navigating to disposition synchronously after firing the call
- * would briefly flash the feedback screen before the dialer covers it. Instead we
- * fire the call, let the dialer take over (app goes to background), and only
- * navigate to disposition on the next ON_RESUME — i.e. when the agent comes back.
+ * How "ended" is detected: a [CallStateWatcher] listens to the real telephony
+ * call state and fires once the call goes OFFHOOK → IDLE (the agent hung up).
+ * This replaces the old ON_RESUME heuristic, which proceeded on the very next
+ * app resume — so disposition could pop before/during the call (e.g. when the
+ * call screen first appeared, or the agent glanced at the notification shade).
+ *
+ * Fallback: if READ_PHONE_STATE isn't granted (watcher can't start), we fall
+ * back to "proceed when the agent returns to the app", but only after we've seen
+ * the app actually go to the background first — so it can't fire prematurely.
  */
 @Composable
 private fun SimDialLauncher(
@@ -166,16 +170,23 @@ private fun SimDialLauncher(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    // Set true once the call has been fired and the dialer has taken over; the
-    // next ON_RESUME (agent returns) then proceeds to the feedback page.
+    // Set true once the call has been fired and the dialer has taken over.
     var awaitingReturn by remember { mutableStateOf(false) }
+    // Fallback only: true once the app has actually backgrounded after dialing,
+    // so a return (ON_RESUME) genuinely means the agent came back from the call.
+    var wentBackground by remember { mutableStateOf(false) }
     var failedNoDialer by remember { mutableStateOf(false) }
+    val watcher = remember { com.example.callcenter.telephony.CallStateWatcher(context) }
 
     fun fireDial() {
         val placed = PhoneCaller.call(context, phone)
         if (placed) {
             onPlaced()
             awaitingReturn = true
+            // Prefer real call-state detection; proceed only when the call ends.
+            // If the watcher can't start (no permission), the lifecycle fallback
+            // below takes over.
+            watcher.start(onEnded = onProceed)
         } else {
             // Couldn't place the call (blank number / denied permission / no
             // dialer) — there's nothing to return from, so go to feedback now so
@@ -205,16 +216,23 @@ private fun SimDialLauncher(
         if (failedNoDialer) onProceed()
     }
 
-    // Once the call was fired, proceed to feedback the moment the agent returns
-    // to the app (ON_RESUME after the dialer/call finishes).
+    // Lifecycle FALLBACK (only matters when the call-state watcher couldn't start):
+    // proceed when the agent returns to the app, but only after it has actually
+    // gone to the background — so we never fire before the call even starts.
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, awaitingReturn) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (awaitingReturn && event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                onProceed()
+            if (!awaitingReturn || watcher.hasPermission()) return@LifecycleEventObserver
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> wentBackground = true
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> if (wentBackground) onProceed()
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            watcher.stop()
+        }
     }
 
     // No visible UI — the phone's own dialer is the only screen the agent sees.

@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- SIM auto-dial places real carrier calls via the device SIM. -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Watch the call state so SIM mode advances to disposition only after the
+         carrier call actually ends (OFFHOOK → IDLE), not on any app resume. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
     <application
         android:name=".CallCenterApp"
