@@ -10,7 +10,7 @@ import retrofit2.http.Body
 import retrofit2.http.POST
 
 /**
- * AUTH_Services endpoints. Base URL: https://testing1.bol7.com/auth2/
+ * AUTH_Services endpoints. Base URL: https://next.bol7.com/auth2/
  *
  * Bol7 uses a two-step OTP login (no username/password):
  *   1. send-otp-mobile  — triggers an OTP to the registered email/phone

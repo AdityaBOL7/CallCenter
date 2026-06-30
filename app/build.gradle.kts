@@ -26,6 +26,15 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Dialer backend. Pointed at the LIVE server (next) so debug hits the
+            // same backend as release — NOTE: debug actions read/write real prod
+            // data. To go back to the old dev backend, restore
+            // "https://callcenter.bol7.com/".
+            buildConfigField("String", "DIALER_BASE_URL", "\"https://next.bol7.com/callcenter/\"")
+            // Auth host (AUTH_Services) — production, on next.bol7.com.
+            buildConfigField("String", "AUTH_BASE_URL", "\"https://next.bol7.com/auth2/\"")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -35,6 +44,10 @@ android {
             )
             // NOTE: no signingConfig here — release signing is configured
             // separately (keystore kept out of git).
+
+            // LIVE dialer backend (production).
+            buildConfigField("String", "DIALER_BASE_URL", "\"https://next.bol7.com/callcenter/\"")
+            buildConfigField("String", "AUTH_BASE_URL", "\"https://next.bol7.com/auth2/\"")
         }
     }
     compileOptions {

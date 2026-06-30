@@ -172,21 +172,29 @@ private fun SimDialLauncher(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     // Set true once the call has been fired and the dialer has taken over.
     var awaitingReturn by remember { mutableStateOf(false) }
-    // Fallback only: true once the app has actually backgrounded after dialing,
-    // so a return (ON_RESUME) genuinely means the agent came back from the call.
+    // True once the app has actually backgrounded after dialing, so a return
+    // (ON_RESUME) genuinely means the agent came back from the call.
     var wentBackground by remember { mutableStateOf(false) }
     var failedNoDialer by remember { mutableStateOf(false) }
     val watcher = remember { com.example.callcenter.telephony.CallStateWatcher(context) }
+    // One-shot guard: the call-state watcher and the lifecycle backstop both race
+    // to detect "the call is over". Whichever fires first navigates; this stops a
+    // double-navigate (and stops the OTHER path from ever firing into a dead screen).
+    val proceeded = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    fun proceedOnce() {
+        if (proceeded.compareAndSet(false, true)) onProceed()
+    }
 
     fun fireDial() {
         val placed = PhoneCaller.call(context, phone)
         if (placed) {
             onPlaced()
             awaitingReturn = true
-            // Prefer real call-state detection; proceed only when the call ends.
-            // If the watcher can't start (no permission), the lifecycle fallback
-            // below takes over.
-            watcher.start(onEnded = onProceed)
+            // Prefer real call-state detection (OFFHOOK → IDLE). The lifecycle
+            // backstop below ALSO runs — if the watcher misses the transition
+            // (short call, OEM telephony quirks), returning to the app still
+            // advances to disposition instead of stranding on a black screen.
+            watcher.start(onEnded = ::proceedOnce)
         } else {
             // Couldn't place the call (blank number / denied permission / no
             // dialer) — there's nothing to return from, so go to feedback now so
@@ -213,18 +221,20 @@ private fun SimDialLauncher(
 
     // If the dial couldn't be placed, go straight to feedback (nothing to wait for).
     LaunchedEffect(failedNoDialer) {
-        if (failedNoDialer) onProceed()
+        if (failedNoDialer) proceedOnce()
     }
 
-    // Lifecycle FALLBACK (only matters when the call-state watcher couldn't start):
-    // proceed when the agent returns to the app, but only after it has actually
-    // gone to the background — so we never fire before the call even starts.
+    // Lifecycle BACKSTOP — always active (not gated on the watcher). Once the app
+    // has actually backgrounded (the dialer took over) and the agent returns, we
+    // proceed to disposition. proceedOnce() makes this harmless if the watcher
+    // already fired; it's the safety net that prevents the black-screen hang when
+    // the telephony watcher misses the call-end transition.
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, awaitingReturn) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (!awaitingReturn || watcher.hasPermission()) return@LifecycleEventObserver
+            if (!awaitingReturn) return@LifecycleEventObserver
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> wentBackground = true
-                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> if (wentBackground) onProceed()
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> if (wentBackground) proceedOnce()
                 else -> Unit
             }
         }

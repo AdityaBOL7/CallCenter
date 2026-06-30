@@ -23,11 +23,12 @@ import retrofit2.Retrofit
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    // AUTH_Services — login / refresh. Trailing slash is required by Retrofit.
-    private const val AUTH_BASE_URL = "https://testing1.bol7.com/auth2/"
-
-    // Dialer backend — profile, leads, calls, callbacks, etc.
-    private const val DIALER_BASE_URL = "https://callcenter.bol7.com/"
+    // Base URLs come from BuildConfig so debug and release can point at different
+    // backends (see app/build.gradle.kts buildTypes). Debug uses the dev dialer;
+    // release uses the live dialer. Auth (next.bol7.com) is production for both.
+    // Trailing slash is required by Retrofit.
+    private val AUTH_BASE_URL = BuildConfig.AUTH_BASE_URL
+    private val DIALER_BASE_URL = BuildConfig.DIALER_BASE_URL
 
     @Provides
     @Singleton

@@ -172,7 +172,11 @@ class CallViewModel @Inject constructor(
             _state.value.note.takeIf { it.isNotBlank() }?.let { inCallNote ->
                 callsRepo.patchCall(note = inCallNote)
             }
-            delay(700)
+            // Brief pause so the in-app SIP call screen can flash "Completed" before
+            // navigating. SIM mode has no visible call screen (just a blank handoff
+            // box), so skip the delay — otherwise the agent stares at a blank screen
+            // for 700ms before the disposition page appears.
+            if (!isSim) delay(700)
             onEnded()
         }
     }

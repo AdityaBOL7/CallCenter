@@ -19,6 +19,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.callcenter.domain.model.AuthStatus
+import com.example.callcenter.telephony.RequestCallPermissions
 import com.example.callcenter.ui.screens.auth.LoginScreen
 import com.example.callcenter.ui.screens.callbacks.CallbackListScreen
 import com.example.callcenter.ui.screens.callbacks.ScheduleCallbackScreen
@@ -69,6 +70,9 @@ fun AppNavGraph(rootViewModel: RootViewModel = hiltViewModel()) {
 
         // Main bottom-bar host
         composable(Dest.MainTabs.route) {
+            // Ask for calling permissions here — the first authenticated screen
+            // after login. Denied ones are re-requested at the point of use.
+            RequestCallPermissions()
             MainScaffold(rootNav)
         }
 
