@@ -24,7 +24,6 @@ data class LoginUiState(
     val mode: LoginMode = LoginMode.EMAIL,
     val identifier: String = "",
     val otp: String = "",
-    val rememberMe: Boolean = true,
     val submitting: Boolean = false,
     val error: String? = null,
     val info: String? = null,
@@ -44,8 +43,6 @@ class LoginViewModel @Inject constructor(
         if (it.mode == mode) it else it.copy(mode = mode, identifier = "", error = null)
     }
 
-    fun setRememberMe(value: Boolean) = _state.update { it.copy(rememberMe = value) }
-
     fun setIdentifier(v: String) = _state.update { it.copy(identifier = v, error = null) }
 
     fun setOtp(v: String) = _state.update {
@@ -64,6 +61,9 @@ class LoginViewModel @Inject constructor(
     /** Step 1 — send the OTP, then advance to the OTP entry step. */
     fun sendOtp() {
         val s = _state.value
+        // Reentrancy guard: a rapid double-tap before `submitting` flips would
+        // otherwise launch a second send (the button only disables on the next frame).
+        if (s.submitting) return
         if (s.identifier.isBlank()) {
             _state.update { it.copy(error = "Enter your registered email or phone") }
             return
@@ -101,6 +101,9 @@ class LoginViewModel @Inject constructor(
     /** Step 2 — verify the entered OTP and sign in. */
     fun verifyOtp(onSuccess: () -> Unit) {
         val s = _state.value
+        // Reentrancy guard: stop a double-tap from launching two verifies (each of
+        // which would call onSuccess() / navigate) before `submitting` disables the button.
+        if (s.submitting) return
         if (s.otp.length != 6) {
             _state.update { it.copy(error = "Enter the 6-digit code") }
             return

@@ -248,7 +248,7 @@ private fun CallHistoryRow(call: Call) {
     val outgoing = call.direction == CallDirection.OUTGOING
     val arrowColor = if (outgoing) Success else Danger
     val arrowIcon = if (outgoing) Icons.Outlined.ArrowUpward else Icons.Outlined.ArrowDownward
-    val dateFmt = DateTimeFormatter.ofPattern("M/d/yyyy h:mm a")
+    val dateFmt = DateTimeFormatter.ofPattern("dd/MM/yyyy h:mm a")
 
     Surface(
         modifier = Modifier.fillMaxWidth(),

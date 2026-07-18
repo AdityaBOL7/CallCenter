@@ -1,5 +1,7 @@
 package com.example.callcenter.data.repository
 
+import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.callcenter.data.remote.api.DialerApi
 import com.example.callcenter.data.remote.dto.ChangeStatusRequest
@@ -8,20 +10,26 @@ import com.example.callcenter.domain.model.Agent
 import com.example.callcenter.domain.model.AgentStats
 import com.example.callcenter.domain.model.AgentStatus
 import com.example.callcenter.domain.model.CallRouteType
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -31,6 +39,7 @@ import retrofit2.HttpException
 
 @Singleton
 class AgentRepository @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val dialerApi: DialerApi,
     private val authRepo: AuthRepository,
 ) {
@@ -172,6 +181,20 @@ class AgentRepository @Inject constructor(
     }
 
     /**
+     * Flip the status locally RIGHT NOW (instant UI) and push the PATCH to the
+     * server in the background. For actions where the agent shouldn't wait on the
+     * network — e.g. "Submit & Pause" going straight to Break + home. The optimistic
+     * value is set before the request, so the UI never blocks on the round-trip.
+     */
+    fun setStatusOptimistic(status: AgentStatus) {
+        _agent.value = _agent.value?.copy(status = status)
+        repoScope.launch {
+            runCatching { dialerApi.changeStatus(ChangeStatusRequest(status = status.toApi())) }
+                .onFailure { Log.w(TAG, "background changeStatus($status) failed", it) }
+        }
+    }
+
+    /**
      * Fetch the dashboard KPIs (GET /api/dialer/dashboard/) and publish them as
      * agent stats so the Home screen shows real numbers. Best-effort: on failure
      * the existing stats are kept (no exception thrown to the caller).
@@ -216,6 +239,49 @@ class AgentRepository @Inject constructor(
         Result.failure(e)
     }
 
+    /**
+     * Upload the agent's own profile picture (POST /auth/me/avatar/, multipart
+     * field `file`). The backend caps uploads at 10 MB, but phone photos are
+     * routinely 5–20 MB, so we DON'T reject big files — we downscale + recompress
+     * every pick to a small JPEG (~512px, well under 200 KB) before sending. That
+     * keeps us under the limit regardless of the source, and is faster to upload.
+     * On success the in-memory profile is updated with the returned public URL.
+     */
+    suspend fun uploadAvatar(uri: Uri): Result<String> {
+        // Compress on the IO dispatcher — bitmap decode/scale is blocking.
+        val jpeg = withContext(Dispatchers.IO) {
+            runCatching { ImageCompressor.compressToJpeg(appContext, uri) }.getOrNull()
+        } ?: return Result.failure(
+            IllegalArgumentException("Couldn't read that image. Pick a JPG, PNG, or WebP photo."),
+        )
+        return try {
+            val body = jpeg.toRequestBody("image/jpeg".toMediaType())
+            val part = MultipartBody.Part.createFormData("file", "avatar.jpg", body)
+            val resp = dialerApi.uploadAvatar(part)
+            val url = resp.avatarUrl?.takeIf { it.isNotBlank() }
+                ?: return Result.failure(IllegalStateException("Server didn't return the image URL."))
+            _agent.value = _agent.value?.copy(avatarUrl = url)
+            Log.d(TAG, "avatar uploaded (${jpeg.size / 1024} KB) ← $url")
+            Result.success(url)
+        } catch (e: HttpException) {
+            // 400 comes back as {"file": "<reason>"}; fall back to "detail".
+            val reason = try {
+                e.response()?.errorBody()?.string()?.let { body ->
+                    Regex("\"(?:file|detail)\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1)
+                }
+            } catch (_: Exception) {
+                null
+            }
+            Log.e(TAG, "avatar upload ← HTTP ${e.code()}", e)
+            Result.failure(Exception(reason ?: "Upload failed (HTTP ${e.code()}). Try again."))
+        } catch (e: Exception) {
+            Log.e(TAG, "avatar upload failed", e)
+            Result.failure(
+                Exception(if (e is IOException) "Network error — photo not uploaded." else e.message ?: "Upload failed."),
+            )
+        }
+    }
+
     /** Best-effort server-side logout; never throws to the caller. */
     suspend fun serverLogout() {
         try {
@@ -226,6 +292,10 @@ class AgentRepository @Inject constructor(
     }
 
     fun clear() {
+        // Cancel any in-flight best-effort syncs (e.g. the login-override "ready"
+        // PATCH) so they can't complete after logout and act on stale auth. The
+        // scope itself stays alive for the next session.
+        repoScope.coroutineContext.cancelChildren()
         _agent.value = null
         _stats.value = AgentStats()
         hasRealProfile = false
@@ -244,6 +314,7 @@ class AgentRepository @Inject constructor(
         status = status?.let(::statusFromApi) ?: AgentStatus.OFFLINE,
         callMode = callModeFromApi(callMode),
         mobileNumber = mobileNumber,
+        callerIdNumber = callerIdNumber,
     )
 
     /**
@@ -257,7 +328,7 @@ class AgentRepository @Inject constructor(
     /** Map the backend call_mode ("sip" | "sim" | "voip") to a route type. */
     private fun callModeFromApi(mode: String?): CallRouteType {
         val route = when (mode?.lowercase()?.trim()) {
-            "sim" -> CallRouteType.MOBILE
+            "sim" -> CallRouteType.SIM
             // "sip" and "voip" both run the in-app call screen for now.
             else -> CallRouteType.SIP
         }

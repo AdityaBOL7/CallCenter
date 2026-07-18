@@ -56,3 +56,9 @@ data class MeResponse(
 data class ChangeStatusRequest(
     val status: String,
 )
+
+/** Response of POST /api/dialer/auth/me/avatar/ — the stored public image URL. */
+@Serializable
+data class AvatarResponse(
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+)

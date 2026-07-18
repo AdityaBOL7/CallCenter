@@ -1,6 +1,5 @@
 package com.example.callcenter.ui.screens.leads
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,8 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Campaign
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.SwapVert
@@ -30,16 +30,23 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -50,7 +57,6 @@ import com.example.callcenter.domain.model.Campaign
 import com.example.callcenter.domain.model.LeadSort
 import com.example.callcenter.domain.model.LeadStatus
 import com.example.callcenter.ui.components.AppBottomSheet
-import com.example.callcenter.ui.components.AppButton
 import com.example.callcenter.ui.components.EmptyState
 import com.example.callcenter.ui.components.GradientHeader
 import com.example.callcenter.ui.components.LoadingState
@@ -58,6 +64,8 @@ import com.example.callcenter.ui.components.SearchInput
 import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
+import com.example.callcenter.ui.theme.Danger
+import com.example.callcenter.ui.theme.Success
 
 private enum class PickerKind { Status, Campaign, Sort }
 
@@ -74,6 +82,10 @@ fun LeadListScreen(
     var activePicker by remember { mutableStateOf<PickerKind?>(null) }
     // Transient message shown over the list (empty queue / not-available).
     var banner by remember { mutableStateOf<String?>(null) }
+    // Delete-all confirm dialog (gated by the client's 6-digit key).
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val deleting by viewModel.deleting.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val statusLabel = state.filters.status?.label ?: "All statuses"
     val campaignLabel = state.campaigns.firstOrNull { it.id == state.filters.campaignId }?.name
@@ -92,13 +104,18 @@ fun LeadListScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(24.dp))
                             .background(Color.White.copy(alpha = 0.2f))
-                            .clickable { viewModel.openImport() }
+                            .clickable { showDeleteDialog = true }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Outlined.FileUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp),
+                        )
                         Spacer(Modifier.size(6.dp))
-                        Text("Import", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Delete new", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 },
             )
@@ -142,8 +159,8 @@ fun LeadListScreen(
                     else -> LazyColumn(
                         // Extra bottom padding so the floating Start button never
                         // covers the last lead card.
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 96.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         items(state.leads, key = { it.id }) { lead ->
                             LeadCard(lead = lead, onClick = { onLeadClick(lead.id) })
@@ -165,6 +182,9 @@ fun LeadListScreen(
                         onEmpty = { banner = "No new leads to call right now." },
                         onNotAvailable = {
                             banner = "Set your status to Available to start calling."
+                        },
+                        onBlocked = {
+                            banner = "Finish the current call's outcome before starting a new one."
                         },
                     )
                 },
@@ -220,18 +240,183 @@ fun LeadListScreen(
         null -> {}
     }
 
-    if (state.importOpen) {
-        AppBottomSheet(onDismiss = viewModel::closeImport) {
-            Column(modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Import leads", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+    if (showDeleteDialog) {
+        // Only NEW (un-worked) leads are deletable — worked leads are kept.
+        val newLeadCount = state.leads.count { it.status == LeadStatus.NEW }
+        DeleteAllDialog(
+            newLeadCount = newLeadCount,
+            deleting = deleting,
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = { key ->
+                viewModel.deleteAllLeads(key) { error ->
+                    if (error == null) {
+                        showDeleteDialog = false
+                        android.widget.Toast.makeText(context, "New leads deleted", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        android.widget.Toast.makeText(context, error, android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Confirm dialog for "Delete all". The client generates a 6-digit key from their
+ * panel and gives it to the agent; entering the matching key authorizes the delete
+ * (validated server-side). The Delete button is disabled until 6 digits are entered.
+ */
+@Composable
+private fun DeleteAllDialog(
+    newLeadCount: Int,
+    deleting: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (key: String) -> Unit,
+) {
+    // rememberSaveable so a mid-entry rotation doesn't wipe the typed key.
+    var key by rememberSaveable { mutableStateOf("") }
+    val canDelete = key.length == 6 && !deleting
+    Dialog(onDismissRequest = { if (!deleting) onDismiss() }) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Danger.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = null,
+                        tint = Danger,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Spacer(Modifier.size(14.dp))
                 Text(
-                    "Upload a CSV or Excel file. We'll match name, phone, and campaign columns automatically.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Delete new leads?",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                    color = AppColor.ink900,
                 )
-                AppButton(text = "Choose file", onClick = viewModel::closeImport, fullWidth = true)
                 Spacer(Modifier.size(8.dp))
+                Text(
+                    "This permanently deletes your $newLeadCount new (un-worked) " +
+                        "${if (newLeadCount == 1) "lead" else "leads"}. Leads you've already " +
+                        "contacted or dispositioned are kept. Enter the 6-digit key your " +
+                        "client shared to confirm.",
+                    color = AppColor.ink500,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 19.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.size(18.dp))
+                KeyBoxes(value = key, onValueChange = { key = it }, enabled = !deleting)
+                Spacer(Modifier.size(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    // Cancel — soft neutral pill.
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(AppColor.ink100)
+                            .clickable(enabled = !deleting) { onDismiss() }
+                            .padding(vertical = 13.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Cancel", color = AppColor.ink700, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    // Delete — solid red, armed only once all 6 digits are in.
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (canDelete) Danger else Danger.copy(alpha = 0.4f))
+                            .clickable(enabled = canDelete) { onConfirm(key) }
+                            .padding(vertical = 13.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (deleting) "Deleting…" else "Delete",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Six numeric boxes for the delete key (digits only, capped at 6). */
+@Composable
+private fun KeyBoxes(value: String, onValueChange: (String) -> Unit, enabled: Boolean) {
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    Box {
+        androidx.compose.material3.OutlinedTextField(
+            value = value,
+            onValueChange = { v -> onValueChange(v.filter { it.isDigit() }.take(6)) },
+            enabled = enabled,
+            singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword,
+            ),
+            modifier = Modifier
+                .matchParentSize()
+                .alpha(0f)
+                .focusRequester(focusRequester),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled) { focusRequester.requestFocus() },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            repeat(6) { i ->
+                val char = value.getOrNull(i)?.toString() ?: ""
+                val filled = char.isNotEmpty()
+                val active = i == value.length
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        // Idle boxes are soft gray; the active box pops to a white
+                        // surface with an indigo ring; filled boxes get a soft tint.
+                        .background(
+                            when {
+                                active -> AppColor.surface
+                                filled -> Brand500.copy(alpha = 0.12f)
+                                else -> AppColor.ink100
+                            }
+                        )
+                        .border(
+                            width = if (active) 2.dp else 1.5.dp,
+                            color = when {
+                                active -> Brand600
+                                filled -> Brand500
+                                else -> Color.Transparent
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                        )
+                        .clickable(enabled = enabled) { focusRequester.requestFocus() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(char, color = AppColor.ink900, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                }
             }
         }
     }
@@ -246,8 +431,14 @@ private fun StartCallingButton(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(Brand600)
+            .shadow(
+                elevation = 10.dp,
+                shape = RoundedCornerShape(15.dp),
+                ambientColor = Success.copy(alpha = 0.3f),
+                spotColor = Success.copy(alpha = 0.45f),
+            )
+            .clip(RoundedCornerShape(15.dp))
+            .background(Success)
             .clickable(enabled = !busy) { onClick() }
             .padding(vertical = 16.dp),
         horizontalArrangement = Arrangement.Center,
@@ -305,7 +496,7 @@ private fun FiltersSection(
     Column(
         modifier = Modifier
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         SearchInput(value = search, onValueChange = onSearch, placeholder = "Search by name or phone")
@@ -343,14 +534,14 @@ private fun FilterDropdown(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier = modifier) {
         Text(
             label,
-            color = AppColor.ink500,
-            fontSize = 10.sp,
+            color = AppColor.micro,
+            fontSize = 10.5.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.8.sp,
-            modifier = Modifier.padding(bottom = 4.dp),
+            letterSpacing = 1.05.sp,
+            modifier = Modifier.padding(bottom = 4.dp, start = 2.dp),
         )
         Row(
             modifier = Modifier

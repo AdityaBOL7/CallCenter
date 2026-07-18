@@ -24,6 +24,9 @@ data class AppColors(
     val ink200: Color,       // dividers / faint borders
     val ink100: Color,       // very faint fills / tracks
     val ink50: Color,        // lightest fill
+    val micro: Color,        // uppercase micro-labels (section eyebrows)
+    val successText: Color,  // success emphasis text on soft green chips
+    val dangerText: Color,   // danger emphasis text (overdue timestamps etc.)
 )
 
 private val LightAppColors = AppColors(
@@ -37,6 +40,9 @@ private val LightAppColors = AppColors(
     ink200 = Ink200,
     ink100 = Ink100,
     ink50 = Ink50,
+    micro = InkMicro,
+    successText = SuccessDeep,
+    dangerText = DangerText,
 )
 
 private val DarkAppColors = AppColors(
@@ -48,8 +54,13 @@ private val DarkAppColors = AppColors(
     ink500 = Color(0xFF94A3B8),        // muted secondary
     ink400 = Color(0xFF64748B),
     ink200 = Color(0xFF334155),        // dividers
-    ink100 = Color(0xFF1E293B),
-    ink50 = Color(0xFF1E293B),
+    // Recessed fills must sit a visible step BELOW the Ink800 card surface —
+    // when these equaled it (0xFF1E293B), key boxes / pills / rails vanished.
+    ink100 = Color(0xFF151F2E),
+    ink50 = Color(0xFF1A2534),
+    micro = Color(0xFF7E8BA0),
+    successText = Success,             // brighter green: SuccessDeep fails contrast on dark chips
+    dangerText = Color(0xFFF87171),    // brighter red: DangerText fails contrast on dark cards
 )
 
 fun appColorsFor(darkTheme: Boolean): AppColors =
@@ -69,4 +80,7 @@ object AppColor {
     val ink200: Color @Composable @ReadOnlyComposable get() = LocalAppColors.current.ink200
     val ink100: Color @Composable @ReadOnlyComposable get() = LocalAppColors.current.ink100
     val ink50: Color @Composable @ReadOnlyComposable get() = LocalAppColors.current.ink50
+    val micro: Color @Composable @ReadOnlyComposable get() = LocalAppColors.current.micro
+    val successText: Color @Composable @ReadOnlyComposable get() = LocalAppColors.current.successText
+    val dangerText: Color @Composable @ReadOnlyComposable get() = LocalAppColors.current.dangerText
 }

@@ -10,38 +10,72 @@ import androidx.datastore.preferences.preferencesDataStore
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 /**
  * Persists the auth tokens.
  *
  * Backed by plain Jetpack [DataStore] in the app's private storage — NOT
- * `EncryptedSharedPreferences`. The Jetpack Security `security-crypto` library
- * is deprecated and corrupts on many OEM devices (the Keystore key gets
- * invalidated, so the stored keyset can no longer be decrypted and
- * `EncryptedSharedPreferences.create()` throws `AEADBadTagException`, crashing
- * the app at startup). DataStore has no Keystore dependency and cannot fail that
- * way. On a non-rooted device the per-app sandbox already isolates this file.
+ * `EncryptedSharedPreferences` (deprecated; crashes via AEADBadTagException on
+ * OEM keystore invalidation). The per-app sandbox already isolates this file on
+ * a non-rooted device.
  *
- * The OkHttp [com.example.callcenter.data.remote.AuthInterceptor] /
+ * Threading: the OkHttp [com.example.callcenter.data.remote.AuthInterceptor] /
  * [com.example.callcenter.data.remote.TokenAuthenticator] read tokens
  * *synchronously* on network threads, so reads are served from an in-memory
- * cache (seeded once from disk); writes update the cache immediately and persist
- * to DataStore. The public API is unchanged from the previous implementation.
+ * cache. The cache is seeded once — eagerly from [CallCenterApp] on a background
+ * thread via [prime] so the very first read on the MAIN thread never blocks on
+ * disk (that was an ANR source at cold start). Writes update the cache
+ * immediately (so any synchronous read right after is correct) and persist to
+ * DataStore off the main thread, fire-and-forget.
  */
 @Singleton
 class SecureTokenStore @Inject constructor(private val context: Context) {
 
     private val dataStore: DataStore<Preferences> get() = context.tokenDataStore
 
+    // IO scope for non-blocking persistence; lives for the process (token store
+    // is a singleton). Never touches the main thread.
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     // Synchronous read cache. Volatile so interceptor threads see writes.
     @Volatile private var cachedAccess: String? = null
     @Volatile private var cachedRefresh: String? = null
+    @Volatile private var cachedExpiryMillis: Long? = null
     @Volatile private var loaded = false
 
-    /** Seed the cache from disk once. Safe to block — DataStore reads are fast. */
+    /**
+     * Seed the cache from disk. Call once at app startup from a background
+     * coroutine (see CallCenterApp) so the first synchronous read on the main
+     * thread is served from memory and never blocks. Safe to call repeatedly.
+     */
+    suspend fun prime() {
+        if (loaded) return
+        val prefs = dataStore.data
+            .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+            .first()
+        synchronized(this) {
+            if (!loaded) {
+                cachedAccess = prefs[KEY_ACCESS]
+                cachedRefresh = prefs[KEY_REFRESH]
+                cachedExpiryMillis = prefs[KEY_EXPIRY]?.toLongOrNull()
+                loaded = true
+            }
+        }
+    }
+
+    /**
+     * Last-resort synchronous seed for a read that happens before [prime] has
+     * completed (rare: only if the network layer reads tokens within the first
+     * few ms of launch). Blocks the *calling* thread — which for the network
+     * path is an OkHttp worker, not the main thread.
+     */
     private fun ensureLoaded() {
         if (loaded) return
         synchronized(this) {
@@ -53,6 +87,7 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
             }
             cachedAccess = prefs[KEY_ACCESS]
             cachedRefresh = prefs[KEY_REFRESH]
+            cachedExpiryMillis = prefs[KEY_EXPIRY]?.toLongOrNull()
             loaded = true
         }
     }
@@ -72,7 +107,8 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
         cachedAccess = access
         cachedRefresh = refresh
         loaded = true
-        runBlocking {
+        // Persist off the main thread, fire-and-forget.
+        ioScope.launch {
             dataStore.edit {
                 it[KEY_ACCESS] = access
                 it[KEY_REFRESH] = refresh
@@ -80,16 +116,30 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
         }
     }
 
+    /** Epoch millis when the login period ends, or null if the server never said. */
+    fun getSessionExpiryMillis(): Long? {
+        ensureLoaded()
+        return cachedExpiryMillis
+    }
+
+    /** Persist the end of the login period (from verify-otp's expiry_in_utc). */
+    fun setSessionExpiry(epochMillis: Long) {
+        cachedExpiryMillis = epochMillis
+        ioScope.launch { dataStore.edit { it[KEY_EXPIRY] = epochMillis.toString() } }
+    }
+
     fun clear() {
         cachedAccess = null
         cachedRefresh = null
+        cachedExpiryMillis = null
         loaded = true
-        runBlocking { dataStore.edit { it.clear() } }
+        ioScope.launch { dataStore.edit { it.clear() } }
     }
 
     companion object {
         private val KEY_ACCESS = stringPreferencesKey("access_token")
         private val KEY_REFRESH = stringPreferencesKey("refresh_token")
+        private val KEY_EXPIRY = stringPreferencesKey("session_expiry_millis")
     }
 }
 

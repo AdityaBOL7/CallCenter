@@ -46,7 +46,11 @@ class LeadListViewModel @Inject constructor(
     private val agentRepo: AgentRepository,
 ) : ViewModel() {
 
-    private val _filters = MutableStateFlow(LeadFilters())
+    // Default the status filter to NEW so the leads screen opens showing only
+    // fresh (un-worked) leads — the filter visibly reads "New", and the agent can
+    // switch to Contacted/etc. any time. Resets to New each time the screen opens
+    // (the ViewModel is recreated per navigation).
+    private val _filters = MutableStateFlow(LeadFilters(status = LeadStatus.NEW))
     private val _importOpen = MutableStateFlow(false)
     private val _loading = MutableStateFlow(true)
     private val _startingAutoDial = MutableStateFlow(false)
@@ -100,6 +104,32 @@ class LeadListViewModel @Inject constructor(
         }
     }
 
+    private val _deleting = MutableStateFlow(false)
+    val deleting: StateFlow<Boolean> = _deleting.asStateFlow()
+
+    /**
+     * Delete all leads, gated by the 6-digit [key] the client shares with the agent.
+     * The server validates the key (see LeadsRepository.deleteAllLeads). [onResult]
+     * gets a null message on success, or an error string to show inline.
+     */
+    fun deleteAllLeads(key: String, onResult: (error: String?) -> Unit) {
+        if (_deleting.value) return
+        viewModelScope.launch {
+            _deleting.value = true
+            try {
+                val result = leadsRepo.deleteAllLeads(key)
+                if (result.isSuccess) {
+                    leadsRepo.refresh()
+                    onResult(null)
+                } else {
+                    onResult(result.exceptionOrNull()?.message ?: "Couldn't delete leads.")
+                }
+            } finally {
+                _deleting.value = false
+            }
+        }
+    }
+
     fun setSearch(v: String) = _filters.update { it.copy(search = v) }
     fun setStatus(status: LeadStatus?) = _filters.update { it.copy(status = status) }
     fun setCampaign(campaignId: Int?) = _filters.update { it.copy(campaignId = campaignId) }
@@ -121,6 +151,7 @@ class LeadListViewModel @Inject constructor(
         onCall: (leadId: Int, callId: String, route: String) -> Unit,
         onEmpty: () -> Unit,
         onNotAvailable: () -> Unit,
+        onBlocked: () -> Unit = {},
     ) {
         viewModelScope.launch {
             _startingAutoDial.value = true
@@ -133,6 +164,13 @@ class LeadListViewModel @Inject constructor(
             if (agent?.status != AgentStatus.AVAILABLE) {
                 _startingAutoDial.value = false
                 onNotAvailable()
+                return@launch
+            }
+            // Block starting a new dialing session while a previous call is still
+            // un-dispositioned (forces wrapping up the current call first).
+            if (callsRepo.hasOpenCall()) {
+                _startingAutoDial.value = false
+                onBlocked()
                 return@launch
             }
             val route = agent.callMode

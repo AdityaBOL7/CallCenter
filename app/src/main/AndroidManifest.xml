@@ -9,6 +9,38 @@
     <!-- Watch the call state so SIM mode advances to disposition only after the
          carrier call actually ends (OFFHOOK → IDLE), not on any app resume. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- After a SIM-mode call, read the TRUE talk duration (and answered/busy
+         outcome) from the device call log — telephony state can't tell pickup
+         from ringing, so this is the only accurate source for SIM calls. Play
+         "restricted permission": declared as a dialer/call-management core use;
+         the feature degrades gracefully (approx duration) if it's denied. -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <!-- Local callback reminders (no FCM): post notifications, exact alarms, and
+         re-arm alarms after a reboot. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Send the optional after-call SMS from the disposition screen. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- Android 11+ package visibility: let us open WhatsApp / SMS / email apps. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
 
     <application
         android:name=".CallCenterApp"
@@ -32,6 +64,32 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Watches PHONE_STATE so a normal incoming SIM call is reported to the
+             backend when it ends and (if answered) routed to the disposition
+             screen. Manifest-registered so it works even if the app was killed;
+             PHONE_STATE is a protected system broadcast, so exported is safe. -->
+        <receiver
+            android:name=".telephony.IncomingCallReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Fires when a callback reminder alarm goes off → posts a notification. -->
+        <receiver
+            android:name=".notifications.ReminderReceiver"
+            android:exported="false" />
+
+        <!-- Re-arms reminder alarms after a device reboot (alarms don't survive it). -->
+        <receiver
+            android:name=".notifications.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

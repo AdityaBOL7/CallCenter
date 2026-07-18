@@ -27,7 +27,10 @@ object PhoneCaller {
      */
     fun call(context: Context, phone: String): Boolean {
         if (phone.isBlank() || !canCall(context)) return false
-        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(phone)}")).apply {
+        // Normalize to E.164 (+91…) — a bare local number makes some OEM dialers
+        // fail with "missing a country code or has the wrong one".
+        val dialable = PhoneNumbers.toDialable(phone).ifBlank { phone }
+        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(dialable)}")).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         return try {

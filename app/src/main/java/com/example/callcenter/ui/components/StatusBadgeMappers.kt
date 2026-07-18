@@ -19,6 +19,8 @@ import com.example.callcenter.ui.theme.Warn
 
 fun colorForLeadStatus(status: LeadStatus): Color = when (status) {
     LeadStatus.NEW -> AccentSky
+    // Amber = "tried, nobody picked up" — matches the BUSY disposition family.
+    LeadStatus.NO_ANSWER -> AccentAmber
     LeadStatus.CONTACTED -> AccentViolet
     LeadStatus.INTERESTED -> Success
     LeadStatus.NOT_INTERESTED -> Danger

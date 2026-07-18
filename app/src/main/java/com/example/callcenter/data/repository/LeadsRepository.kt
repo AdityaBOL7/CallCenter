@@ -3,6 +3,7 @@ package com.example.callcenter.data.repository
 import android.util.Log
 import com.example.callcenter.data.remote.api.DialerApi
 import com.example.callcenter.data.remote.dto.AssignLeadRequest
+import com.example.callcenter.data.remote.dto.DeleteWithKeyRequest
 import com.example.callcenter.data.remote.dto.LeadDto
 import com.example.callcenter.data.remote.dto.LeadPage
 import com.example.callcenter.data.remote.dto.UpdateLeadRequest
@@ -11,8 +12,10 @@ import com.example.callcenter.domain.model.LeadFilters
 import com.example.callcenter.domain.model.LeadPriority
 import com.example.callcenter.domain.model.LeadSort
 import com.example.callcenter.domain.model.LeadStatus
+import java.time.Instant
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -39,6 +43,22 @@ class LeadsRepository @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    // Own scope for fire-and-forget refreshes that must survive the CALLER
+    // being torn down (e.g. the disposition screen navigating away right after
+    // submit — a viewModelScope launch there gets cancelled mid-flight).
+    private val repoScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO,
+    )
+
+    /**
+     * Fire-and-forget [refresh]. Used right after a disposition: the backend
+     * re-buckets the lead's status at hangup, so pulling the list now makes the
+     * new bucket visible without a manual pull-to-refresh.
+     */
+    fun refreshSoon() {
+        repoScope.launch { refresh() }
+    }
+
     /** Fetch all leads from the backend into the cache. */
     suspend fun refresh(): Result<Unit> {
         return try {
@@ -52,6 +72,56 @@ class LeadsRepository @Inject constructor(
             Log.e(TAG, "leads/ failed", e)
             _error.value = e.message ?: "Couldn't load leads."
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Delete this agent's NEW (untouched) leads via POST /leads/delete-with-key/,
+     * gated by a one-shot 6-digit action key the client generates from their
+     * panel (Agent Action Keys). The server validates and burns the key.
+     *
+     * SCOPE: only status == NEW is deleted — leads the agent has already worked
+     * (Contacted / Interested / Not-interested / Follow-up / Converted / Closed)
+     * are kept, so a wrong-batch import can be wiped without losing progress.
+     *
+     * Failure mapping: HTTP 423 = the agent is LOCKED after 5 wrong keys (an
+     * admin must unlock via /agents/<id>/unlock-action-key/); 400/403/404 =
+     * invalid, already-used, or revoked key.
+     */
+    suspend fun deleteAllLeads(key: String): Result<Unit> {
+        // Refresh first if the cache is cold so the NEW set reflects the server.
+        if (_leads.value.isEmpty()) refresh()
+        // Only fresh, un-worked leads are eligible for deletion.
+        val ids = _leads.value.filter { it.status == LeadStatus.NEW }.map { it.id }
+        if (ids.isEmpty()) {
+            return Result.failure(IllegalStateException("There are no new leads to delete."))
+        }
+        return try {
+            val resp = dialerApi.deleteLeadsWithKey(DeleteWithKeyRequest(key = key, leadIds = ids))
+            Log.d(TAG, "delete-with-key ← deleted=${resp.deleted} skipped=${resp.skipped} key_state=${resp.keyState}")
+            // Prune exactly what the server reports deleted (fall back to all
+            // requested ids if it doesn't echo the list).
+            val deletedIds = resp.deletedLeadIds.ifEmpty { ids }.toSet()
+            _leads.value = _leads.value.filterNot { it.id in deletedIds }
+            Result.success(Unit)
+        } catch (e: retrofit2.HttpException) {
+            Log.e(TAG, "delete-with-key ← HTTP ${e.code()}", e)
+            val message = when (e.code()) {
+                423 -> "Too many wrong keys — deletion is locked for your account. Ask your admin to unlock it."
+                400, 403, 404 -> "That key is invalid, already used, or revoked. Ask your client for a fresh key."
+                else -> "Couldn't delete leads (HTTP ${e.code()}). Try again."
+            }
+            Result.failure(Exception(message, e))
+        } catch (e: kotlinx.serialization.SerializationException) {
+            // The DELETE returned 2xx (server DID delete) but we couldn't parse the
+            // body — do NOT report failure, or the agent thinks nothing happened
+            // and retries a completed delete. Treat as success and re-sync truth.
+            Log.w(TAG, "delete-with-key succeeded but response body didn't parse; refreshing", e)
+            refresh()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "delete-with-key failed", e)
+            Result.failure(Exception("Network error — leads were not deleted. Try again.", e))
         }
     }
 
@@ -98,19 +168,26 @@ class LeadsRepository @Inject constructor(
 
     suspend fun nextLead(): Lead? {
         if (_leads.value.isEmpty()) refresh()
+        // Untried leads first, then no-answer retries — both are callable.
         return _leads.value.firstOrNull { it.status == LeadStatus.NEW }
+            ?: _leads.value.firstOrNull { it.status == LeadStatus.NO_ANSWER }
             ?: _leads.value.firstOrNull()
     }
 
     /**
-     * Ordered list of leads to auto-dial: status == NEW, highest priority first.
+     * Ordered list of leads to auto-dial: untried (NEW) first by priority, then
+     * NO_ANSWER retries — a lead that left NEW because nobody picked up must
+     * stay in the dialing loop, else it silently becomes uncallable.
      * Refreshes from the backend first so the queue reflects the latest leads.
      */
     suspend fun queueForAutoDial(): List<Lead> {
         refresh()
         return _leads.value
-            .filter { it.status == LeadStatus.NEW }
-            .sortedByDescending { it.priority.weight }
+            .filter { it.status == LeadStatus.NEW || it.status == LeadStatus.NO_ANSWER }
+            .sortedWith(
+                compareBy<Lead> { it.status != LeadStatus.NEW }
+                    .thenByDescending { it.priority.weight },
+            )
     }
 
     // --- helpers ---
@@ -173,6 +250,7 @@ class LeadsRepository @Inject constructor(
             priority = priorityFromApi(priority),
             nextCallbackAt = parseDate(nextCallbackAt),
             lastContactedAt = parseDate(lastContactedAt),
+            createdAt = parseDate(createdAt),
             notes = notes,
             address = null,
             tags = tags.orEmpty(),
@@ -181,6 +259,7 @@ class LeadsRepository @Inject constructor(
 
     private fun statusFromApi(s: String?): LeadStatus = when (s?.lowercase()?.trim()) {
         "new" -> LeadStatus.NEW
+        "no_answer", "no-answer" -> LeadStatus.NO_ANSWER
         "contacted" -> LeadStatus.CONTACTED
         "interested" -> LeadStatus.INTERESTED
         "not_interested", "not-interested" -> LeadStatus.NOT_INTERESTED
@@ -196,6 +275,7 @@ class LeadsRepository @Inject constructor(
 
     private fun LeadStatus.toApi(): String = when (this) {
         LeadStatus.NEW -> "new"
+        LeadStatus.NO_ANSWER -> "no_answer"
         LeadStatus.CONTACTED -> "contacted"
         LeadStatus.INTERESTED -> "interested"
         LeadStatus.NOT_INTERESTED -> "not_interested"
@@ -223,12 +303,20 @@ class LeadsRepository @Inject constructor(
     private fun parseDate(raw: String?): LocalDateTime? {
         if (raw.isNullOrBlank()) return null
         return try {
-            OffsetDateTime.parse(raw).toLocalDateTime()
+            // Convert the server's UTC/offset time to the DEVICE's local zone
+            // BEFORE dropping the offset. (toLocalDateTime() alone keeps the raw
+            // UTC wall-clock — e.g. showing 8:28 instead of 1:58 PM IST.)
+            OffsetDateTime.parse(raw).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime()
         } catch (_: DateTimeParseException) {
             try {
-                LocalDateTime.parse(raw)
+                // Bare "…Z" instants → also anchor to local.
+                Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDateTime()
             } catch (_: DateTimeParseException) {
-                null
+                try {
+                    LocalDateTime.parse(raw)
+                } catch (_: DateTimeParseException) {
+                    null
+                }
             }
         }
     }

@@ -101,7 +101,11 @@ fun CampaignDetailScreen(
                     AppCard {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Conversions: ${c!!.conversions}", fontWeight = FontWeight.SemiBold)
-                            Text("Conversion rate: ${"%.1f".format(c!!.conversions.toFloat() / c!!.totalLeads * 100)}%")
+                            // Guard against divide-by-zero (new/empty campaign) → "NaN%".
+                            val rate = if (c!!.totalLeads > 0) {
+                                c!!.conversions.toFloat() / c!!.totalLeads * 100
+                            } else 0f
+                            Text("Conversion rate: ${"%.1f".format(rate)}%")
                         }
                     }
                 }

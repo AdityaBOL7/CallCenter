@@ -41,7 +41,10 @@ import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.Warn
 import java.time.format.DateTimeFormatter
 
-private val dateFmt = DateTimeFormatter.ofPattern("M/d/yyyy h:mm a")
+private val dateFmt = DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a")
+
+/** "7/3/2026, 11:01 AM" → "7/3/2026, 11:01 am" to match the design. */
+private fun String.lowerMeridiem(): String = replace(" AM", " am").replace(" PM", " pm")
 
 @Composable
 fun LeadCard(
@@ -58,10 +61,10 @@ fun LeadCard(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        tonalElevation = 1.dp,
+        shadowElevation = 2.dp,
     ) {
         Row(modifier = Modifier.height(IntrinsicMin)) {
             // Priority strip
@@ -85,7 +88,7 @@ fun LeadCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = lead.name.first().uppercaseChar().toString(),
+                            text = lead.name.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
                             color = statusColor,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp,
@@ -93,16 +96,18 @@ fun LeadCard(
                     }
                     Spacer(Modifier.size(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(lead.name, fontWeight = FontWeight.SemiBold, color = AppColor.ink900, fontSize = 15.sp)
+                        Text(lead.name, fontWeight = FontWeight.Bold, color = AppColor.ink900, fontSize = 15.sp)
                         Spacer(Modifier.size(2.dp))
                         IconText(icon = Icons.Outlined.Phone, text = lead.phone)
-                        Spacer(Modifier.size(2.dp))
-                        IconText(icon = Icons.Outlined.Campaign, text = lead.campaignName)
+                        if (lead.campaignName.isNotBlank()) {
+                            Spacer(Modifier.size(2.dp))
+                            IconText(icon = Icons.Outlined.Campaign, text = lead.campaignName)
+                        }
                     }
                     StatusBadgeWithDot(text = statusLabel, color = statusBadgeColor)
                 }
-                val followUpText = lead.nextCallbackAt?.let { "Follow-up: ${it.format(dateFmt)}" }
-                val lastCalledText = lead.lastContactedAt?.let { "Last called: ${it.format(dateFmt)}" }
+                val followUpText = lead.nextCallbackAt?.let { "Follow-up: ${it.format(dateFmt).lowerMeridiem()}" }
+                val lastCalledText = lead.lastContactedAt?.let { "Last called: ${it.format(dateFmt).lowerMeridiem()}" }
                 val bottom = followUpText ?: lastCalledText
                 if (bottom != null) {
                     Spacer(Modifier.size(8.dp))
@@ -114,7 +119,7 @@ fun LeadCard(
                             modifier = Modifier.size(13.dp),
                         )
                         Spacer(Modifier.size(6.dp))
-                        Text(bottom, color = AppColor.ink500, fontSize = 11.sp)
+                        Text(bottom, color = AppColor.ink500, fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -127,7 +132,7 @@ private fun IconText(icon: androidx.compose.ui.graphics.vector.ImageVector, text
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(12.dp))
         Spacer(Modifier.size(6.dp))
-        Text(text, color = AppColor.ink500, fontSize = 12.sp, maxLines = 1)
+        Text(text, color = AppColor.ink500, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 
@@ -148,7 +153,7 @@ private fun StatusBadgeWithDot(text: String, color: Color) {
         Text(
             text = text,
             color = color,
-            fontSize = 10.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp,
         )

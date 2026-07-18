@@ -11,6 +11,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.serialization.json.Json
@@ -57,6 +58,10 @@ object NetworkModule {
     fun provideAuthOkHttpClient(cookieJar: InMemoryCookieJar): OkHttpClient =
         OkHttpClient.Builder()
             .cookieJar(cookieJar)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(45, TimeUnit.SECONDS)
             .addInterceptor(loggingInterceptor())
             .build()
 
@@ -86,6 +91,12 @@ object NetworkModule {
         tokenAuthenticator: TokenAuthenticator,
     ): OkHttpClient =
         OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            // Generous write/call timeouts: recording uploads can be large (up to
+            // ~100 MiB) on slow networks; a short timeout would silently drop them.
+            .writeTimeout(5, TimeUnit.MINUTES)
+            .callTimeout(6, TimeUnit.MINUTES)
             .addInterceptor(authInterceptor)
             .authenticator(tokenAuthenticator)
             .addInterceptor(loggingInterceptor())

@@ -21,6 +21,10 @@ data class Agent(
     // set here; they don't pick it. Defaults to SIP when unspecified.
     val callMode: CallRouteType = CallRouteType.SIP,
     val mobileNumber: String? = null,
+    // The DID the callee sees on SIP calls (from me/.caller_id_number). Display
+    // only — click-to-call deliberately sends NO from_number; the backend fills
+    // in this provisioned value itself (see CallsRepository.initiate).
+    val callerIdNumber: String? = null,
 )
 
 data class AgentStats(

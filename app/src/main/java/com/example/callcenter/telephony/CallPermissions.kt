@@ -49,12 +49,15 @@ fun RequestCallPermissions() {
         // unlike repeatOnLifecycle which would re-fire on every resume. This
         // sidesteps the navigation-transition window where a launch gets cancelled.
         lifecycleOwner.withResumed {
-            val missing = requiredCallPermissions().filter {
+            // Ask for required + optional together, in one prompt. Optional
+            // (READ_CALL_LOG) improves talk-time accuracy but a denial NEVER
+            // blocks calling — it's excluded from the required gate below.
+            val toAsk = (requiredCallPermissions() + optionalCallPermissions()).filter {
                 ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
             }
             // Nothing to ask → don't launch (avoids a no-op system round-trip).
-            if (missing.isNotEmpty()) {
-                launcher.launch(missing.toTypedArray())
+            if (toAsk.isNotEmpty()) {
+                launcher.launch(toAsk.toTypedArray())
             }
         }
     }
@@ -66,7 +69,22 @@ private fun requiredCallPermissions(): List<String> = buildList {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
         add(Manifest.permission.READ_PHONE_STATE)
     }
+    // Android 13+ needs an explicit grant to show callback reminders. Ask here so
+    // agents get the prompt on entry, not buried in Settings — otherwise every
+    // reminder alarm fires but the notification is silently dropped.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+    }
 }
+
+/**
+ * Optional permissions requested alongside the required ones but NOT gating
+ * calling. READ_CALL_LOG lets us read the true talk duration of SIM calls from
+ * the device call log; if denied, calling still works — talk time is just
+ * approximate. Kept separate so a call-log denial can never block a call.
+ */
+private fun optionalCallPermissions(): List<String> =
+    listOf(Manifest.permission.READ_CALL_LOG)
 
 /** True if both calling permissions are already granted (for callers that want to check). */
 fun hasAllCallPermissions(context: Context): Boolean =

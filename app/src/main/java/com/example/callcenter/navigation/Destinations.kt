@@ -1,6 +1,9 @@
 package com.example.callcenter.navigation
 
 sealed class Dest(val route: String) {
+    // Animated brand splash shown on cold start.
+    data object Splash : Dest("splash")
+
     // Auth
     data object Login : Dest("login")
 
@@ -30,6 +33,12 @@ sealed class Dest(val route: String) {
         const val ARG_CALL = "callId"
         const val ARG_LEAD = "leadId"
     }
+
+    // Disposition for an answered INCOMING SIM call. No args: there's no backend
+    // call/lead yet (the sim-incoming POST is deferred to submit/cancel), so the
+    // screen reads the caller's number + talk time from the persisted pending
+    // incoming call.
+    data object DispositionIncoming : Dest("dispositionIncoming")
     data object ScheduleCallback : Dest("schedule/{leadId}") {
         fun build(leadId: Int) = "schedule/$leadId"
         const val ARG = "leadId"

@@ -4,6 +4,11 @@ import java.time.LocalDateTime
 
 enum class LeadStatus(val label: String) {
     NEW("New"),
+    // Dialed at least once but NOBODY ever picked up (confirmed by the device
+    // call log). Distinct from NEW ("never tried") and CONTACTED ("we talked") —
+    // this is the retry bucket. Backend accepts "no_answer" on leads (verified
+    // live 2026-07-16). Agreed with Aditya: NEW must keep meaning "never dialed".
+    NO_ANSWER("No Answer"),
     CONTACTED("Contacted"),
     INTERESTED("Interested"),
     NOT_INTERESTED("Not Interested"),
@@ -30,6 +35,7 @@ data class Lead(
     val priority: LeadPriority = LeadPriority.MEDIUM,
     val nextCallbackAt: LocalDateTime? = null,
     val lastContactedAt: LocalDateTime? = null,
+    val createdAt: LocalDateTime? = null,
     val notes: String? = null,
     val address: String? = null,
     val tags: List<String> = emptyList(),

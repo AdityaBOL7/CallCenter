@@ -1,5 +1,6 @@
 package com.example.callcenter.ui.screens.auth
 
+import com.example.callcenter.BuildConfig
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,6 +54,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -109,7 +111,6 @@ fun LoginScreen(
                 state = state,
                 onMode = viewModel::setMode,
                 onIdentifier = viewModel::setIdentifier,
-                onRememberMe = viewModel::setRememberMe,
                 onOtp = viewModel::setOtp,
                 onSendOtp = viewModel::sendOtp,
                 onVerifyOtp = { viewModel.verifyOtp(onSuccess = onAuthenticated) },
@@ -128,7 +129,7 @@ fun LoginScreen(
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("v1.0.0", color = AppColor.ink400, fontSize = 11.sp)
+                Text("v${BuildConfig.VERSION_NAME}", color = AppColor.ink400, fontSize = 11.sp)
                 Spacer(Modifier.height(16.dp))
             }
         }
@@ -154,7 +155,7 @@ private fun BrandMark() {
             )
         }
         Spacer(Modifier.height(12.dp))
-        Text("Agent Dialer", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AppColor.ink900)
+        Text("Dialer Agent", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = AppColor.ink900)
         Spacer(Modifier.height(2.dp))
         Text("Sign in to start your shift", fontSize = 13.sp, color = AppColor.ink500)
         Spacer(Modifier.height(10.dp))
@@ -188,7 +189,6 @@ private fun LoginCard(
     state: LoginUiState,
     onMode: (LoginMode) -> Unit,
     onIdentifier: (String) -> Unit,
-    onRememberMe: (Boolean) -> Unit,
     onOtp: (String) -> Unit,
     onSendOtp: () -> Unit,
     onVerifyOtp: () -> Unit,
@@ -208,6 +208,8 @@ private fun LoginCard(
 
             Text(
                 if (isOtpStep) "Enter code" else "Welcome back",
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 color = AppColor.ink900,
@@ -216,6 +218,8 @@ private fun LoginCard(
             Text(
                 if (isOtpStep) "We sent a 6-character code to verify it's you"
                 else "Sign in with a one-time code",
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
                 color = AppColor.ink500,
                 fontSize = 13.sp,
             )
@@ -252,8 +256,6 @@ private fun LoginCard(
                         keyboardType = if (isPhone) KeyboardType.Phone else KeyboardType.Email,
                     ),
                 )
-                Spacer(Modifier.height(8.dp))
-                RememberMeRow(checked = state.rememberMe, onCheckedChange = onRememberMe)
             } else {
                 FieldLabel("VERIFICATION CODE")
                 Spacer(Modifier.height(10.dp))
@@ -434,18 +436,6 @@ private fun OtpBoxes(
         }
     }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
-}
-
-@Composable
-private fun RememberMeRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.clickable { onCheckedChange(!checked) },
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        androidx.compose.material3.Checkbox(checked = checked, onCheckedChange = onCheckedChange)
-        Spacer(Modifier.size(4.dp))
-        Text("Remember me", color = AppColor.ink700, fontSize = 13.sp)
-    }
 }
 
 private const val OTP_LENGTH = 6

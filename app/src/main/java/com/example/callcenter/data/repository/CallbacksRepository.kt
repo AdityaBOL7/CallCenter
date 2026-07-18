@@ -1,6 +1,7 @@
 package com.example.callcenter.data.repository
 
 import android.util.Log
+import com.example.callcenter.data.prefs.AppPreferences
 import com.example.callcenter.data.remote.api.DialerApi
 import com.example.callcenter.data.remote.dto.CallbackDto
 import com.example.callcenter.data.remote.dto.CompleteCallbackRequest
@@ -8,6 +9,7 @@ import com.example.callcenter.data.remote.dto.ScheduleCallbackRequest
 import com.example.callcenter.data.remote.dto.UpdateCallbackRequest
 import com.example.callcenter.domain.model.Callback
 import com.example.callcenter.domain.model.CallbackStatus
+import com.example.callcenter.notifications.ReminderScheduler
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
@@ -31,6 +33,8 @@ import kotlinx.serialization.json.JsonObject
 class CallbacksRepository @Inject constructor(
     private val dialerApi: DialerApi,
     private val json: Json,
+    private val reminderScheduler: ReminderScheduler,
+    private val appPrefs: AppPreferences,
 ) {
 
     private val _items = MutableStateFlow<List<Callback>>(emptyList())
@@ -38,8 +42,17 @@ class CallbacksRepository @Inject constructor(
     fun observeAll(): Flow<List<Callback>> =
         _items.map { list -> list.sortedBy { it.scheduledAt } }
 
+    /** Current cached callbacks (no network) — used by BootReceiver to re-arm alarms. */
+    fun snapshot(): List<Callback> = _items.value
+
     /** Cached lookup (no network). Use [fetchById] to force a backend read. */
     fun byId(id: Int): Callback? = _items.value.firstOrNull { it.id == id }
+
+    /** Re-arm all reminder alarms from the current list using the saved timing. */
+    private suspend fun refreshReminders() {
+        val minutes = appPrefs.current().followUpTimingMinutes
+        reminderScheduler.rescheduleAll(_items.value, minutes)
+    }
 
     /**
      * Refresh the callback list from the backend. Optional filters mirror
@@ -58,6 +71,7 @@ class CallbacksRepository @Inject constructor(
         val dtos = parseList(element)
         Log.d(TAG, "callbacks/ ← ${dtos.size} items")
         _items.value = dtos.mapNotNull { it.toCallback() }
+        refreshReminders()
         Result.success(Unit)
     } catch (e: Exception) {
         Log.e(TAG, "callbacks/ failed", e)
@@ -91,7 +105,10 @@ class CallbacksRepository @Inject constructor(
                 ),
             )
             val cb = dto.toCallback()
-            if (cb != null) _items.update { it.upsert(cb) }
+            if (cb != null) {
+                _items.update { it.upsert(cb) }
+                refreshReminders()
+            }
             cb
         } catch (e: Exception) {
             Log.e(TAG, "schedule callback failed", e)
@@ -119,7 +136,10 @@ class CallbacksRepository @Inject constructor(
                     status = status?.toApi(),
                 ),
             )
-            dto.toCallback()?.let { cb -> _items.update { it.upsert(cb) } }
+            dto.toCallback()?.let { cb ->
+                _items.update { it.upsert(cb) }
+                refreshReminders()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "update callback failed", e)
         }
@@ -128,10 +148,39 @@ class CallbacksRepository @Inject constructor(
     suspend fun complete(id: Int, callId: Int? = null, note: String? = null): Result<Unit> = try {
         val dto = dialerApi.completeCallback(id, CompleteCallbackRequest(callId = callId, note = note))
         dto.toCallback()?.let { cb -> _items.update { it.upsert(cb) } }
+        // A completed callback needs no reminder.
+        reminderScheduler.cancel(id)
         Result.success(Unit)
     } catch (e: Exception) {
         Log.e(TAG, "complete callback failed", e)
         Result.failure(e)
+    }
+
+    /**
+     * Mark every OPEN (pending/overdue) follow-up for [leadId] complete. Called
+     * after a call to that lead is dispositioned — the call itself fulfils the
+     * follow-up; without this the entry sat in the callbacks list forever
+     * (user report 2026-07-18). Runs BEFORE any new follow-up is scheduled by
+     * the disposition, so a fresh reschedule is never swallowed. The cache can
+     * be empty on a fresh process, so it's refreshed first in that case.
+     */
+    suspend fun completeOpenForLead(leadId: Int) {
+        if (leadId <= 0) return
+        // ALWAYS refresh first: the cache can be PARTIAL, not just empty — a
+        // follow-up scheduled in an earlier session isn't in this process's
+        // cache, and skipping it left it "overdue" forever (live 2026-07-18:
+        // callback 19 completed but 18 was missed). A failed refresh falls
+        // back to whatever the cache has — best effort beats nothing.
+        refresh()
+        _items.value
+            .filter {
+                it.leadId == leadId &&
+                    (it.status == CallbackStatus.PENDING || it.status == CallbackStatus.OVERDUE)
+            }
+            .forEach { cb ->
+                Log.d(TAG, "callback ${cb.id} auto-completed (lead $leadId dispositioned)")
+                complete(cb.id)
+            }
     }
 
     suspend fun cancel(id: Int): Result<Unit> = try {
@@ -140,6 +189,7 @@ class CallbacksRepository @Inject constructor(
         _items.update { list ->
             list.map { if (it.id == id) it.copy(status = CallbackStatus.CANCELLED) else it }
         }
+        reminderScheduler.cancel(id)
         Result.success(Unit)
     } catch (e: Exception) {
         Log.e(TAG, "cancel callback failed", e)

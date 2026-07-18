@@ -18,8 +18,8 @@ android {
         applicationId = "com.bol7.dialeragent"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -117,8 +117,9 @@ dependencies {
     // OEM keystore invalidation (AEADBadTagException). Tokens now use DataStore.
     implementation(libs.androidx.datastore.preferences)
 
-    // Coil
+    // Coil (+ network fetcher — Coil 3 core can't load https:// URLs without it)
     implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 
     // Debug / test
     debugImplementation(libs.androidx.compose.ui.tooling)

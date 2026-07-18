@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.callcenter.data.prefs.SecureTokenStore
 import com.example.callcenter.data.remote.api.AuthApi
 import com.example.callcenter.data.remote.dto.RefreshRequest
+import com.example.callcenter.data.repository.AuthRepository
 import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,6 +28,9 @@ import okhttp3.Route
 class TokenAuthenticator @Inject constructor(
     private val tokenStore: SecureTokenStore,
     private val authApi: Lazy<AuthApi>,
+    // Lazy to avoid a DI init cycle. AuthRepository uses the AUTH client, not the
+    // dialer client this authenticator guards, so there is no real runtime cycle.
+    private val authRepository: Lazy<AuthRepository>,
 ) : Authenticator {
 
     override fun authenticate(route: Route?, response: Response): Request? {
@@ -39,6 +43,7 @@ class TokenAuthenticator @Inject constructor(
         val refresh = tokenStore.getRefreshToken()
         if (refresh.isNullOrBlank()) {
             Log.w(TAG, "No refresh token; cannot refresh")
+            authRepository.get().sessionExpired()
             return null
         }
 
@@ -59,18 +64,55 @@ class TokenAuthenticator @Inject constructor(
     }
 
     private fun tryRefresh(refresh: String): String? = try {
-        val resp = runBlocking { authApi.get().refresh(RefreshRequest(refresh = refresh)) }
-        val access = resp.resolvedAccess
-        if (access.isNullOrBlank()) {
-            Log.e(TAG, "Refresh returned no access token")
+        // The refresh is sent BOTH in the body and as a Cookie: the cookie is
+        // the web frontend's flow, and presenting it makes the server answer
+        // with Set-Cookie ENCRYPTED tokens — the only format the callcenter
+        // backend accepts as Bearer (2026-07-16 backend change).
+        val resp = runBlocking {
+            authApi.get().refresh(
+                RefreshRequest(refresh = refresh),
+                cookie = "refresh_token=$refresh",
+            )
+        }
+        if (!resp.isSuccessful) {
+            // The refresh token itself was rejected (401/400 invalid_grant /
+            // revoked): the session is genuinely over → force logout. A 5xx is
+            // treated as transient.
+            if (resp.code() == 401 || resp.code() == 400) {
+                Log.e(TAG, "Refresh token rejected (HTTP ${resp.code()})")
+                authRepository.get().sessionExpired()
+            } else {
+                Log.e(TAG, "Refresh failed (HTTP ${resp.code()})")
+            }
             null
         } else {
-            tokenStore.setTokens(access = access, refresh = refresh)
-            Log.d(TAG, "Access token refreshed")
-            access
+            val body = resp.body()
+            // Prefer the encrypted tokens from Set-Cookie; fall back to body.
+            val access = SetCookies.value(resp.headers(), "access_token")
+                ?: body?.resolvedAccess
+            // ROTATION: every successful refresh REVOKES the old refresh token.
+            // Failing to store the replacement guarantees a forced logout on
+            // the next refresh (the 2026-07-16 dead-session incident).
+            val newRefresh = SetCookies.value(resp.headers(), "refresh_token")
+                ?: body?.resolvedRefresh
+                ?: refresh
+            if (access.isNullOrBlank()) {
+                Log.e(TAG, "Refresh returned no access token")
+                authRepository.get().sessionExpired()
+                null
+            } else {
+                tokenStore.setTokens(access = access, refresh = newRefresh)
+                // A refresh extends the login period — persist the new expiry
+                // (if the response carries one) so the auto-logout countdown
+                // moves out instead of firing mid-valid-session.
+                authRepository.get().sessionExtended(body?.resolvedExpiry)
+                Log.d(TAG, "Access token refreshed (refresh rotated=${newRefresh != refresh})")
+                access
+            }
         }
     } catch (e: Exception) {
-        Log.e(TAG, "Refresh failed", e)
+        // Network/transient error — don't log the user out; let them retry.
+        Log.e(TAG, "Refresh failed (transient)", e)
         null
     }
 

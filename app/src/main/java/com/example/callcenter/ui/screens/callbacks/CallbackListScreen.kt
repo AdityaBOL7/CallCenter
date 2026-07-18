@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -111,6 +112,7 @@ class CallbackListViewModel @Inject constructor(
         callback: Callback,
         onCall: (leadId: Int, callId: String, route: String) -> Unit,
         onNotAvailable: () -> Unit = {},
+        onBlocked: () -> Unit = {},
     ) {
         viewModelScope.launch {
             val lead = leadsRepo.byId(callback.leadId) ?: return@launch
@@ -118,6 +120,11 @@ class CallbackListViewModel @Inject constructor(
             // Agents may only call while Available; use their assigned dial mode.
             if (!callsRepo.canCall()) {
                 onNotAvailable()
+                return@launch
+            }
+            // Block a new call while a previous one is still un-dispositioned.
+            if (callsRepo.hasOpenCall()) {
+                onBlocked()
                 return@launch
             }
             val route = agentRepo.agent.value?.callMode ?: CallRouteType.SIP
@@ -137,10 +144,18 @@ fun CallbackListScreen(
     val state by viewModel.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val now = LocalDateTime.now()
+    // Only OPEN follow-ups belong on this screen: a completed/cancelled one is
+    // done — it must disappear from the list, not linger as "OVERDUE" because
+    // its slot is in the past (that's exactly what happened after the
+    // auto-complete-on-disposition shipped, 2026-07-18). Overdue = open AND the
+    // slot has passed.
+    val open = state.items.filter {
+        it.status == CallbackStatus.PENDING || it.status == CallbackStatus.OVERDUE
+    }
     val isOverdue: (Callback) -> Boolean = { it.status == CallbackStatus.OVERDUE || it.scheduledAt.isBefore(now) }
-    val overdueCount = state.items.count(isOverdue)
+    val overdueCount = open.count(isOverdue)
     // Sort: overdue first (most overdue at top), then upcoming (soonest first)
-    val sorted = state.items.sortedWith(
+    val sorted = open.sortedWith(
         compareByDescending<Callback> { isOverdue(it) }.thenBy { it.scheduledAt }
     )
 
@@ -150,7 +165,7 @@ fun CallbackListScreen(
         Column(Modifier.fillMaxSize()) {
             GradientHeader(
                 title = "Follow-ups",
-                subtitle = "${state.items.size} scheduled • $overdueCount overdue",
+                subtitle = "${open.size} scheduled • $overdueCount overdue",
                 rightSlot = {
                     if (overdueCount > 0) OverdueHeaderPill(count = overdueCount)
                 },
@@ -163,11 +178,11 @@ fun CallbackListScreen(
                 when {
                     state.loading -> LoadingState()
                     // Empty state inside a LazyColumn so the pull gesture still works.
-                    state.items.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
+                    open.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
                         item { EmptyState(title = "No follow-ups scheduled", modifier = Modifier.fillParentMaxSize()) }
                     }
                     else -> LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
+                        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                     items(sorted, key = { it.id }) { cb ->
@@ -182,6 +197,13 @@ fun CallbackListScreen(
                                         android.widget.Toast.makeText(
                                             context,
                                             "Set your status to Available to start calling.",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    },
+                                    onBlocked = {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Finish the current call's outcome before starting a new one.",
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
                                     },
@@ -212,11 +234,10 @@ private fun OverdueHeaderPill(count: Int) {
             .background(Danger))
         Spacer(Modifier.size(6.dp))
         Text(
-            "$count OVERDUE",
+            "$count overdue",
             color = Color.White,
-            fontSize = 11.sp,
+            fontSize = 11.5.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.6.sp,
         )
     }
 }
@@ -228,15 +249,15 @@ private fun CallbackCard(
     onCall: () -> Unit,
     onReschedule: () -> Unit,
 ) {
-    val fmt = DateTimeFormatter.ofPattern("M/d/yyyy h:mm a")
+    val fmt = DateTimeFormatter.ofPattern("dd/MM/yyyy, h:mm a")
     val accent = if (overdue) Danger else Warn
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        tonalElevation = 1.dp,
+        shadowElevation = 2.dp,
     ) {
         Row(modifier = Modifier.height(IntrinsicSize.Min)) {
             // Left accent strip
@@ -246,12 +267,12 @@ private fun CallbackCard(
                     .fillMaxHeight()
                     .background(accent),
             )
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
                 Row(verticalAlignment = Alignment.Top) {
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(11.dp))
                             .background(accent.copy(alpha = 0.14f)),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -269,14 +290,14 @@ private fun CallbackCard(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Outlined.Phone, contentDescription = null, tint = AppColor.ink500, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.size(6.dp))
-                            Text(cb.phone, color = AppColor.ink500, fontSize = 12.sp)
+                            Text(cb.phone, color = AppColor.ink500, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         }
-                        Spacer(Modifier.size(2.dp))
+                        Spacer(Modifier.size(3.dp))
                         Text(
                             text = buildScheduledText(cb.scheduledAt, overdue, fmt),
-                            color = if (overdue) Danger else AppColor.ink500,
+                            color = if (overdue) AppColor.dangerText else AppColor.ink500,
                             fontSize = 12.sp,
-                            fontWeight = if (overdue) FontWeight.SemiBold else FontWeight.Normal,
+                            fontWeight = if (overdue) FontWeight.Bold else FontWeight.Medium,
                         )
                     }
                     if (overdue) {
@@ -292,7 +313,7 @@ private fun CallbackCard(
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                     ) {
-                        Text(cb.note, color = AppColor.ink500, fontSize = 13.sp)
+                        Text(cb.note, color = AppColor.ink700, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     }
                 }
                 Spacer(Modifier.size(12.dp))
@@ -312,8 +333,9 @@ private fun CallbackCard(
 
 private fun buildScheduledText(at: LocalDateTime, overdue: Boolean, fmt: DateTimeFormatter): String {
     val now = LocalDateTime.now()
-    val base = at.format(fmt)
-    val suffix = if (overdue) " (${relativeAgo(at, now)})" else ""
+    // "7/3/2026, 12:10 pm - 4h ago"
+    val base = at.format(fmt).replace(" AM", " am").replace(" PM", " pm")
+    val suffix = if (overdue) " - ${relativeAgo(at, now)}" else ""
     return base + suffix
 }
 
@@ -322,9 +344,9 @@ private fun relativeAgo(at: LocalDateTime, now: LocalDateTime): String {
     val hours = ChronoUnit.HOURS.between(at, now)
     val days = ChronoUnit.DAYS.between(at.toLocalDate(), now.toLocalDate())
     return when {
-        days >= 1 -> "ago ${days}d"
-        hours >= 1 -> "ago ${hours}h"
-        mins >= 1 -> "ago ${mins}m"
+        days >= 1 -> "${days}d ago"
+        hours >= 1 -> "${hours}h ago"
+        mins >= 1 -> "${mins}m ago"
         else -> "just now"
     }
 }
@@ -346,7 +368,7 @@ private fun StatusDotBadge(text: String, color: Color) {
         Text(
             text = text,
             color = color,
-            fontSize = 10.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.5.sp,
         )
@@ -357,7 +379,13 @@ private fun StatusDotBadge(text: String, color: Color) {
 private fun PrimaryCallButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .shadow(
+                elevation = 6.dp,
+                shape = RoundedCornerShape(14.dp),
+                ambientColor = Success.copy(alpha = 0.35f),
+                spotColor = Success.copy(alpha = 0.45f),
+            )
+            .clip(RoundedCornerShape(14.dp))
             .background(Success)
             .clickable { onClick() }
             .padding(vertical = 12.dp),
@@ -366,7 +394,7 @@ private fun PrimaryCallButton(onClick: () -> Unit, modifier: Modifier = Modifier
     ) {
         Icon(Icons.Outlined.Phone, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
         Spacer(Modifier.size(6.dp))
-        Text("Call", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+        Text("Call", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
     }
 }
 
@@ -379,8 +407,8 @@ private fun SecondaryActionButton(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .border(1.dp, AppColor.ink200, RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, AppColor.ink200, RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surface)
             .clickable { onClick() }
             .padding(vertical = 12.dp),

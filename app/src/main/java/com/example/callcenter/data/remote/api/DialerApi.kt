@@ -1,18 +1,23 @@
 package com.example.callcenter.data.remote.api
 
 import com.example.callcenter.data.remote.dto.AssignLeadRequest
+import com.example.callcenter.data.remote.dto.AvatarResponse
 import com.example.callcenter.data.remote.dto.CallDto
 import com.example.callcenter.data.remote.dto.CallbackDto
 import com.example.callcenter.data.remote.dto.CampaignDto
 import com.example.callcenter.data.remote.dto.ChangeStatusRequest
+import com.example.callcenter.data.remote.dto.ClickToCallRequest
 import com.example.callcenter.data.remote.dto.CreateCampaignRequest
 import com.example.callcenter.data.remote.dto.UpdateCampaignRequest
 import com.example.callcenter.data.remote.dto.CompleteCallbackRequest
+import com.example.callcenter.data.remote.dto.DeleteWithKeyRequest
+import com.example.callcenter.data.remote.dto.DeleteWithKeyResponse
 import com.example.callcenter.data.remote.dto.HangupRequest
 import com.example.callcenter.data.remote.dto.LeadDto
 import com.example.callcenter.data.remote.dto.MeResponse
 import com.example.callcenter.data.remote.dto.UnreadCountDto
 import com.example.callcenter.data.remote.dto.ScheduleCallbackRequest
+import com.example.callcenter.data.remote.dto.SimIncomingRequest
 import com.example.callcenter.data.remote.dto.StartCallRequest
 import com.example.callcenter.data.remote.dto.UpdateCallRequest
 import com.example.callcenter.data.remote.dto.UpdateCallbackRequest
@@ -49,6 +54,15 @@ interface DialerApi {
     suspend fun logout()
 
     /**
+     * Upload the agent's OWN profile picture. Multipart field `file`, accepted
+     * types jpg/png/webp, max 10 MB. Stored public-read; the returned
+     * avatar_url is also echoed on subsequent GET me/ responses.
+     */
+    @Multipart
+    @POST("api/dialer/auth/me/avatar/")
+    suspend fun uploadAvatar(@Part file: MultipartBody.Part): AvatarResponse
+
+    /**
      * Dashboard KPIs (totals + agent_performance + recent_calls). Returned as a
      * raw JsonElement so the repo can log the exact shape and parse tolerantly
      * (the backend's field names aren't fully documented).
@@ -81,6 +95,14 @@ interface DialerApi {
     @POST("api/dialer/leads/{id}/assign/")
     suspend fun assignLead(@Path("id") id: Int, @Body body: AssignLeadRequest): LeadDto
 
+    /**
+     * Redeem a one-shot 6-digit action key and delete the listed leads (must be
+     * assigned-to-caller or unassigned in their company). Wrong keys count
+     * against the agent: 5 misses → HTTP 423 lockout until an admin unlocks.
+     */
+    @POST("api/dialer/leads/delete-with-key/")
+    suspend fun deleteLeadsWithKey(@Body body: DeleteWithKeyRequest): DeleteWithKeyResponse
+
     // ---- Dispositions ----
 
     /**
@@ -103,6 +125,27 @@ interface DialerApi {
      */
     @POST("api/dialer/calls/sim-dial/")
     suspend fun simDial(@Body body: StartCallRequest): CallDto
+
+    /**
+     * SIP-mode click-to-call: server-side originate that calls the agent's phone
+     * then bridges the lead. Used when call_mode == sip/voip (the SIP analogue
+     * of sim-dial). Returns JsonElement because the response shape changed
+     * server-side on 2026-07-17: originally the bare Call row, now
+     * {"call": {...}, "provider": {success, message, ref_id}}. The repository
+     * parses both — reading the id from the wrong shape silently produced
+     * id=null, which killed every later PATCH/hangup for the call.
+     */
+    @POST("api/dialer/calls/click-to-call/")
+    suspend fun clickToCall(@Body body: ClickToCallRequest): kotlinx.serialization.json.JsonElement
+
+    /**
+     * SIM-mode incoming: log an inbound carrier call AFTER it ends (the app only
+     * learns the outcome from telephony state + the call log). The backend
+     * finds-or-creates a Lead from from_number and returns the Call row; answered
+     * calls are then dispositioned via the normal hangup/ endpoint.
+     */
+    @POST("api/dialer/calls/sim-incoming/")
+    suspend fun simIncoming(@Body body: SimIncomingRequest): CallDto
 
     /** In-call update: status transitions + mute/hold/recording/note. */
     @PATCH("api/dialer/calls/{id}/")

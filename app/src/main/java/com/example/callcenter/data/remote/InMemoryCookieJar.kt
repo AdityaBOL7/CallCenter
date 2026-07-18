@@ -29,6 +29,14 @@ class InMemoryCookieJar @Inject constructor() : CookieJar {
         val byName = store.getOrPut(host) { ConcurrentHashMap() }
         val now = System.currentTimeMillis()
         for (cookie in cookies) {
+            // ONLY the OTP-flow cookie is ever stored. AUTH_Services also sets
+            // identity cookies (session / JWT) on login+refresh responses; if we
+            // replayed one of those on a later send-otp, DRF would authenticate
+            // the COOKIE instead of the anonymous request — and a stale cookie
+            // for a deactivated user bricks login with 401 user_inactive no
+            // matter what email is typed. Bearer auth is handled by headers, so
+            // no other cookie has any business persisting here.
+            if (!cookie.name.startsWith(OTP_COOKIE_PREFIX)) continue
             if (cookie.expiresAt <= now) {
                 byName.remove(cookie.name)
             } else {
@@ -58,4 +66,10 @@ class InMemoryCookieJar @Inject constructor() : CookieJar {
     }
 
     fun clear() = store.clear()
+
+    private companion object {
+        // otp_req_uuid__login, otp_req_uuid__<purpose>… — the cookies that tie
+        // send-otp-mobile to verify-otp-mobile (the jar's whole reason to exist).
+        const val OTP_COOKIE_PREFIX = "otp_req_uuid"
+    }
 }

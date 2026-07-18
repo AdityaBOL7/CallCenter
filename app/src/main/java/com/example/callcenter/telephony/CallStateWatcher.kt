@@ -10,9 +10,12 @@ import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 
 /**
- * Observes the device call state for SIM-mode dialing so the app can advance to
- * the disposition screen only AFTER the carrier call has actually ended — i.e.
- * the call went OFFHOOK (connected/dialing) and then back to IDLE (hung up).
+ * Observes the device call state so the app can advance to the disposition
+ * screen only AFTER the carrier call has actually ended — i.e. the call went
+ * OFFHOOK (connected/dialing) and then back to IDLE (hung up). Used by:
+ *  - SIM dialing (outgoing carrier call placed by the app), and
+ *  - the SIP waiting screen, which additionally passes [start]'s `onState` to
+ *    mirror the click-to-call agent leg live (incoming ring → picked up → over).
  *
  * Why not just use the activity lifecycle: an ON_RESUME fires for many reasons
  * (the screen first appearing, the notification shade, app switching) that have
@@ -43,14 +46,42 @@ class CallStateWatcher(private val context: Context) {
 
     /**
      * Begin watching. [onEnded] is invoked exactly once, on the main thread, when
-     * the call finishes. Returns false (and never calls back) if telephony or the
-     * permission is unavailable — the caller should then use a fallback.
+     * the call finishes (OFFHOOK → IDLE); the watcher then stops itself. Returns
+     * false (and never calls back) if telephony or the permission is unavailable —
+     * the caller should then use a fallback.
+     *
+     * [onState] (optional) additionally receives EVERY raw call-state change
+     * (CALL_STATE_RINGING / OFFHOOK / IDLE). Its `isInitial` flag marks the one
+     * callback telephony fires immediately on registration with the CURRENT
+     * device state: that is a snapshot of whatever was already happening (often
+     * IDLE, but OFFHOOK if some call is already live), NOT a transition of the
+     * call the consumer cares about — consumers must not treat it as one.
+     *
+     * [relayOnly] disables the internal OFFHOOK→IDLE bookkeeping entirely (no
+     * [onEnded], no self-stop), turning the watcher into a pure state relay that
+     * survives multiple ring cycles. The SIP waiting screen uses this: a stale
+     * pre-existing call ending must not stop the watcher before the real agent
+     * leg even rings.
+     *
+     * Calling start() while already watching is a no-op returning true — a
+     * second registration would orphan the first (only the last one is kept for
+     * stop()), leaking a TelephonyCallback for the process lifetime.
      */
-    fun start(onEnded: () -> Unit): Boolean {
+    fun start(
+        onEnded: () -> Unit = {},
+        onState: ((state: Int, isInitial: Boolean) -> Unit)? = null,
+        relayOnly: Boolean = false,
+    ): Boolean {
         val tm = telephony ?: return false
         if (!hasPermission()) return false
+        if (callback != null || legacyListener != null) return true
 
+        var first = true
         fun handleState(state: Int) {
+            val isInitial = first
+            first = false
+            onState?.invoke(state, isInitial)
+            if (relayOnly) return
             when (state) {
                 TelephonyManager.CALL_STATE_OFFHOOK -> sawOffHook = true
                 TelephonyManager.CALL_STATE_IDLE -> {

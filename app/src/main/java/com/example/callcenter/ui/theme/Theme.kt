@@ -11,8 +11,8 @@ import androidx.compose.ui.graphics.Color
 private val LightColors = lightColorScheme(
     primary = Brand600,
     onPrimary = Color.White,
-    primaryContainer = Brand100,
-    onPrimaryContainer = Brand900,
+    primaryContainer = Brand50,
+    onPrimaryContainer = BrandOnSoft,
     secondary = AccentMint,
     onSecondary = Color.White,
     secondaryContainer = Emerald50,

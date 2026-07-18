@@ -37,7 +37,7 @@ fun PageHeader(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 10.dp),
+            .padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 10.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -66,7 +66,8 @@ fun PageHeader(
                 Text(
                     text = title,
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.3).sp,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }

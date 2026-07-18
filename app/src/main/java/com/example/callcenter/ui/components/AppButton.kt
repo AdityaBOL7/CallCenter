@@ -23,7 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,15 +60,18 @@ fun AppButton(
 
     // Brand/Danger/Success keep fixed white-on-color contrast in both themes;
     // Secondary/Ghost are neutral fills and must follow the theme.
+    // Primary is a SOLID indigo (not a gradient brush): a brush needs the laid-out
+    // size to paint, so on the first frame it flashes empty/white — a solid color
+    // paints immediately and stays blue.
     val scheme = androidx.compose.material3.MaterialTheme.colorScheme
-    val (bg, fg) = when (variant) {
-        AppButtonVariant.Primary -> (if (pressed) Brand700 else Brand600) to Color.White
+    val (bg: Brush, fg) = when (variant) {
+        AppButtonVariant.Primary -> SolidColor(if (pressed) Brand700 else Brand600) to Color.White
         AppButtonVariant.Secondary ->
-            (if (pressed) scheme.inverseSurface.copy(alpha = 0.9f) else scheme.inverseSurface) to scheme.inverseOnSurface
-        AppButtonVariant.Danger -> Danger to Color.White
-        AppButtonVariant.Success -> Success to Color.White
+            SolidColor(if (pressed) scheme.inverseSurface.copy(alpha = 0.9f) else scheme.inverseSurface) to scheme.inverseOnSurface
+        AppButtonVariant.Danger -> SolidColor(Danger) to Color.White
+        AppButtonVariant.Success -> SolidColor(Success) to Color.White
         AppButtonVariant.Ghost ->
-            (if (pressed) AppColor.ink100 else AppColor.ink50) to AppColor.ink900
+            SolidColor(if (pressed) AppColor.ink100 else AppColor.ink50) to AppColor.ink900
     }
 
     val padding: PaddingValues = when (size) {
@@ -80,7 +85,7 @@ fun AppButton(
         modifier = modifier
             .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier)
             .scale(scale)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(15.dp))
             .background(bg)
             .alpha(if (enabled) 1f else 0.6f)
             .clickable(

@@ -42,11 +42,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil3.compose.AsyncImage
 import com.example.callcenter.domain.model.AgentStatus
 import com.example.callcenter.ui.components.SectionHeader
 import com.example.callcenter.ui.components.colorForAgentStatus
@@ -56,7 +59,6 @@ import com.example.callcenter.ui.theme.AccentSky
 import com.example.callcenter.ui.theme.AccentViolet
 import com.example.callcenter.ui.theme.AppColor
 import com.example.callcenter.ui.theme.AppGradients
-import com.example.callcenter.ui.theme.Brand500
 import com.example.callcenter.ui.theme.Brand600
 import com.example.callcenter.ui.theme.Danger
 import com.example.callcenter.ui.theme.HeaderShape
@@ -77,6 +79,17 @@ fun DashboardScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val refreshing by viewModel.refreshing.collectAsState()
+
+    // A failed status change must be VISIBLE — silently reverting the chip made
+    // a dead session look like "the status button is broken".
+    val statusError by viewModel.statusError.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.LaunchedEffect(statusError) {
+        statusError?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+            viewModel.clearStatusError()
+        }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -85,6 +98,7 @@ fun DashboardScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             DashboardHero(
                 agentName = state.agent?.name ?: "Agent",
+                avatarUrl = state.agent?.avatarUrl,
                 callModeLabel = state.agent?.callMode?.label,
                 status = state.status,
                 onStatusChange = viewModel::setStatus,
@@ -100,17 +114,17 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
             ) {
                 PerformanceCard(
                     connected = state.stats.connectedCalls,
                     total = state.stats.totalCalls,
                     rate = state.stats.connectionRate,
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 if (state.stats.newLeads > 0) {
                     NewLeadsBanner(count = state.stats.newLeads, onOpen = onOpenLeads)
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(14.dp))
                 }
                 SectionHeader("Today's overview")
                 StatGrid(state)
@@ -135,6 +149,7 @@ fun DashboardScreen(
 @Composable
 private fun DashboardHero(
     agentName: String,
+    avatarUrl: String?,
     callModeLabel: String?,
     status: AgentStatus,
     onStatusChange: (AgentStatus) -> Unit,
@@ -157,22 +172,36 @@ private fun DashboardHero(
                         .background(Color.White.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = agentName.firstOrNull()?.uppercaseChar()?.toString() ?: "A",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 20.sp,
-                    )
+                    if (!avatarUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = avatarUrl,
+                            contentDescription = "Profile photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Text(
+                            text = agentName.firstOrNull()?.uppercaseChar()?.toString() ?: "A",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp,
+                        )
+                    }
                 }
                 Spacer(Modifier.size(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Welcome back", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp)
+                    Text(
+                        "Welcome back",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = agentName,
                             color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
                         )
                         if (callModeLabel != null) {
                             Spacer(Modifier.size(8.dp))
@@ -219,7 +248,7 @@ private fun DashboardHero(
 }
 
 private val WindowPaddings = androidx.compose.foundation.layout.PaddingValues(
-    start = 16.dp, end = 16.dp, top = 36.dp, bottom = 14.dp,
+    start = 18.dp, end = 18.dp, top = 36.dp, bottom = 16.dp,
 )
 
 /** Small badge showing the agent's backend-assigned dial mode (SIP / SIM). */
@@ -248,17 +277,16 @@ private fun StatusSelector(current: AgentStatus, onChange: (AgentStatus) -> Unit
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = AppColor.surface,
-        tonalElevation = 4.dp,
-        shadowElevation = 4.dp,
+        shadowElevation = 8.dp,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Text(
                 "YOUR STATUS",
-                color = AppColor.ink500,
-                fontSize = 10.sp,
+                color = AppColor.micro,
+                fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 0.8.sp,
+                letterSpacing = 1.05.sp,
             )
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -268,6 +296,15 @@ private fun StatusSelector(current: AgentStatus, onChange: (AgentStatus) -> Unit
                     Box(
                         modifier = Modifier
                             .weight(1f)
+                            // Soft colored glow under the active pill only.
+                            .then(
+                                if (selected) Modifier.shadow(
+                                    elevation = 6.dp,
+                                    shape = RoundedCornerShape(12.dp),
+                                    ambientColor = color.copy(alpha = 0.35f),
+                                    spotColor = color.copy(alpha = 0.45f),
+                                ) else Modifier
+                            )
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (selected) color else color.copy(alpha = 0.12f))
                             .clickable { onChange(st) }
@@ -277,7 +314,7 @@ private fun StatusSelector(current: AgentStatus, onChange: (AgentStatus) -> Unit
                         Text(
                             text = st.label,
                             color = if (selected) Color.White else color,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                         )
                     }
@@ -292,7 +329,7 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp,
+        shadowElevation = 2.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -301,7 +338,7 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Today's performance",
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         color = AppColor.ink500,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -309,14 +346,17 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = connected.toString(),
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 27.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-0.3).sp,
                             color = AppColor.ink900,
                         )
                         Spacer(Modifier.size(6.dp))
                         Text(
-                            text = "/ $total calls",
+                            // "wins" = interested + converted, out of today's calls.
+                            text = "wins / $total ${if (total == 1) "call" else "calls"}",
                             fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
                             color = AppColor.ink500,
                             modifier = Modifier.padding(bottom = 4.dp),
                         )
@@ -332,9 +372,9 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
                 ) {
                     Text(
                         text = "${(rate * 100).toInt()}%",
-                        color = Success,
+                        color = AppColor.successText,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }
@@ -354,55 +394,59 @@ private fun PerformanceCard(connected: Int, total: Int, rate: Float) {
 
 @Composable
 private fun NewLeadsBanner(count: Int, onOpen: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = Brand500,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onOpen() },
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = Brand600.copy(alpha = 0.3f),
+                spotColor = Brand600.copy(alpha = 0.4f),
+            )
+            .clip(RoundedCornerShape(16.dp))
+            .background(AppGradients.primaryCta())
+            .clickable { onOpen() }
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.2f)),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.WorkOutline,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Spacer(Modifier.size(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "$count new leads",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                )
-                Text(
-                    text = "Tap to review and start calling.",
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 11.sp,
-                )
-            }
+            Icon(
+                Icons.Outlined.WorkOutline,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Spacer(Modifier.size(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "$count new leads",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
+            Text(
+                text = "Tap to review and start calling.",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+            )
         }
     }
 }
 
 @Composable
 private fun StatGrid(state: DashboardUiState) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OverviewTile(
-                label = "Total leads",
+                label = "Leads today",
                 value = state.stats.totalLeads.toString(),
                 icon = Icons.Outlined.People,
                 tint = Brand600,
@@ -416,7 +460,7 @@ private fun StatGrid(state: DashboardUiState) {
                 modifier = Modifier.weight(1f),
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OverviewTile(
                 label = "Recordings",
                 value = state.stats.recordings.toString(),
@@ -445,28 +489,32 @@ private fun OverviewTile(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        // Vertical stack (icon tile → big stat → muted label), per the Home design.
+        Column(modifier = Modifier.padding(14.dp)) {
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(11.dp))
                     .background(tint.copy(alpha = 0.14f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
             }
-            Spacer(Modifier.size(10.dp))
-            Column {
-                Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColor.ink900)
-                Text(label, fontSize = 11.sp, color = AppColor.ink500)
-            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                value,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.3).sp,
+                color = AppColor.ink900,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(label, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = AppColor.ink500)
         }
     }
 }
@@ -481,8 +529,8 @@ private fun QuickActions(
     onOpenNotifications: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             QuickTile("Campaigns", Icons.Outlined.Campaign, AccentViolet, onOpenCampaigns, Modifier.weight(1f))
             QuickTile("Reports", Icons.Outlined.Assessment, AccentMint, onOpenReports, Modifier.weight(1f))
         }
@@ -499,8 +547,9 @@ private fun QuickTile(
 ) {
     Surface(
         modifier = modifier.clickable { onClick() },
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
         Column(

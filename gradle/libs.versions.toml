@@ -11,7 +11,7 @@ lifecycleViewmodelCompose = "2.8.7"
 activityCompose = "1.9.3"
 composeBom = "2024.12.01"
 navigationCompose = "2.8.5"
-hilt = "2.52"
+hilt = "2.56.2"
 hiltNavigationCompose = "1.2.0"
 coroutines = "1.9.0"
 datastore = "1.1.1"
@@ -60,8 +60,10 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 androidx-security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 
-# Coil
+# Coil (coil-network-okhttp: Coil 3 core has no network fetcher — this adds
+# OkHttp-backed https:// loading, auto-registered via ServiceLoader)
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
 # Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }

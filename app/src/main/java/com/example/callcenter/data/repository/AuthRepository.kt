@@ -3,6 +3,7 @@ package com.example.callcenter.data.repository
 import android.util.Log
 import com.example.callcenter.BuildConfig
 import com.example.callcenter.data.prefs.SecureTokenStore
+import com.example.callcenter.data.remote.SetCookies
 import com.example.callcenter.data.remote.api.AuthApi
 import com.example.callcenter.data.remote.dto.SendOtpRequest
 import com.example.callcenter.data.remote.dto.VerifyOtpRequest
@@ -14,6 +15,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
 @Singleton
@@ -31,6 +33,79 @@ class AuthRepository @Inject constructor(
         }
     )
     val authStatus: StateFlow<AuthStatus> = _authStatus.asStateFlow()
+
+    // Owns the login-period countdown; survives ViewModels (singleton lifetime).
+    private val repoScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+    )
+    private var expiryJob: kotlinx.coroutines.Job? = null
+
+    init {
+        // The server's login period (verify-otp's expiry_in_utc) is enforced by
+        // the APP, not just by requests failing: if it already lapsed while the
+        // app was closed, log out right now instead of showing a zombie session
+        // (stale "Agent" profile with every call 401ing). Otherwise arm the
+        // countdown so the logout happens the moment the period ends.
+        enforceSessionExpiry()
+    }
+
+    /**
+     * Force logout if the login period has ended; otherwise (re-)arm the
+     * countdown to fire exactly when it does. Cheap and idempotent — called at
+     * process start, after login, and on every app foreground.
+     */
+    fun enforceSessionExpiry() {
+        if (_authStatus.value != AuthStatus.AUTHENTICATED) return
+        val expiry = tokenStore.getSessionExpiryMillis() ?: return
+        val remaining = expiry - System.currentTimeMillis()
+        if (remaining <= 0) {
+            Log.w(TAG, "Login period ended (expiry passed) — logging out")
+            sessionExpired()
+            return
+        }
+        expiryJob?.cancel()
+        expiryJob = repoScope.launch {
+            kotlinx.coroutines.delay(remaining)
+            if (_authStatus.value == AuthStatus.AUTHENTICATED) {
+                Log.w(TAG, "Login period ended — automatic logout")
+                sessionExpired()
+            }
+        }
+    }
+
+    /**
+     * A successful token refresh extended the login period — persist the new
+     * end and re-arm the countdown. No-op when the refresh response carries no
+     * expiry (the previously stored one then stays authoritative).
+     */
+    fun sessionExtended(rawExpiry: String?) {
+        val millis = rawExpiry?.let(::parseExpiryMillis) ?: return
+        tokenStore.setSessionExpiry(millis)
+        enforceSessionExpiry()
+    }
+
+    /**
+     * Parse expiry_in_utc to epoch millis. The live server sends EPOCH SECONDS
+     * as a number (1784369981); ISO-8601 is kept as a fallback in case the
+     * format changes again.
+     */
+    private fun parseExpiryMillis(raw: String): Long? {
+        raw.toLongOrNull()?.let { n ->
+            // 10-digit epoch = seconds; 13-digit = already millis.
+            return if (n < 1_000_000_000_000L) n * 1000 else n
+        }
+        return try {
+            java.time.OffsetDateTime.parse(raw).toInstant().toEpochMilli()
+        } catch (_: Exception) {
+            try {
+                // No offset in the string — the backend documents it as UTC.
+                java.time.LocalDateTime.parse(raw).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+            } catch (_: Exception) {
+                Log.w(TAG, "Unparseable expiry_in_utc: \"$raw\" — auto-logout disabled for this session")
+                null
+            }
+        }
+    }
 
     // The user profile returned at login (name/email/phone/role). Survives the
     // process and lets us show the real identity even if the dialer me/ 404s.
@@ -70,25 +145,59 @@ class AuthRepository @Inject constructor(
             val response = authApi.verifyOtpMobile(
                 VerifyOtpRequest(email = id, otp = otp.trim()),
             )
-            val access = response.resolvedAccess
-            val refresh = response.resolvedRefresh
-            Log.d(TAG, "verifyOtp ← 2xx  hasAccess=${!access.isNullOrBlank()} hasRefresh=${!refresh.isNullOrBlank()}")
+            if (!response.isSuccessful) {
+                _authStatus.value = AuthStatus.UNAUTHENTICATED
+                val body = try {
+                    response.errorBody()?.string()?.takeIf { it.isNotBlank() }
+                } catch (_: Exception) {
+                    null
+                }
+                Log.e(TAG, "verifyOtp ← HTTP ${response.code()}  body=$body")
+                return Result.failure(IllegalStateException(messageForVerifyOtp(response.code(), body)))
+            }
+            val payload = response.body()
+            // The callcenter backend accepts ONLY the encrypted ("gAAAA…")
+            // tokens, which arrive via Set-Cookie — the body JWTs get 401
+            // "Invalid encrypted token" on every dialer call (2026-07-16
+            // backend change). Prefer the cookie values; fall back to the
+            // body so a backend revert to JWT auth keeps login working.
+            val cookieAccess = SetCookies.value(response.headers(), "access_token")
+            val cookieRefresh = SetCookies.value(response.headers(), "refresh_token")
+            val access = cookieAccess ?: payload?.resolvedAccess
+            val refresh = cookieRefresh ?: payload?.resolvedRefresh
+            Log.d(
+                TAG,
+                "verifyOtp ← 2xx  hasAccess=${!access.isNullOrBlank()} hasRefresh=${!refresh.isNullOrBlank()} " +
+                    "source=${if (cookieAccess != null) "cookie(encrypted)" else "body(jwt)"}",
+            )
             if (access.isNullOrBlank()) {
                 _authStatus.value = AuthStatus.UNAUTHENTICATED
                 Log.e(TAG, "verifyOtp ← 2xx but no access token in response")
                 Result.failure(IllegalStateException("Verification succeeded but no token was returned"))
             } else {
+                if (refresh.isNullOrBlank()) {
+                    // Login still proceeds (the access token works for now), but
+                    // this session CANNOT survive an access-token expiry: the
+                    // authenticator will find no refresh token and force logout.
+                    // If this line shows up, the fix belongs on AUTH_Services —
+                    // verify-otp-mobile must return a refresh token.
+                    Log.e(TAG, "verifyOtp: backend returned NO refresh token — session will die when the access token expires")
+                }
                 tokenStore.setTokens(access = access, refresh = refresh.orEmpty())
-                cachedUser = response.user
-                Log.d(TAG, "login user: ${response.user?.fullName} (${response.user?.role})")
+                cachedUser = payload?.user
+                // Enforce the server's login period: store when it ends and arm
+                // the auto-logout countdown (enforceSessionExpiry below).
+                payload?.resolvedExpiry?.let { raw ->
+                    parseExpiryMillis(raw)?.let { millis ->
+                        tokenStore.setSessionExpiry(millis)
+                        Log.d(TAG, "login period ends at $raw")
+                    }
+                }
+                Log.d(TAG, "login user: ${payload?.user?.fullName} (${payload?.user?.role})")
                 _authStatus.value = AuthStatus.AUTHENTICATED
+                enforceSessionExpiry()
                 Result.success(Unit)
             }
-        } catch (e: HttpException) {
-            _authStatus.value = AuthStatus.UNAUTHENTICATED
-            val body = e.errorBody()
-            Log.e(TAG, "verifyOtp ← HTTP ${e.code()}  body=$body", e)
-            Result.failure(IllegalStateException(messageForVerifyOtp(e.code(), body), e))
         } catch (e: IOException) {
             _authStatus.value = AuthStatus.UNAUTHENTICATED
             Log.e(TAG, "verifyOtp ← network error", e)
@@ -101,6 +210,23 @@ class AuthRepository @Inject constructor(
     }
 
     fun logout() {
+        expiryJob?.cancel()
+        tokenStore.clear()
+        cachedUser = null
+        _authStatus.value = AuthStatus.UNAUTHENTICATED
+    }
+
+    /**
+     * The refresh token is dead (refresh itself 401'd) — the session is over.
+     * Called from [com.example.callcenter.data.remote.TokenAuthenticator] on an
+     * OkHttp thread, so it only touches thread-safe state. Flipping authStatus to
+     * UNAUTHENTICATED makes the NavHost return to Login instead of leaving the UI
+     * stuck "logged in" while every request 401s. Idempotent.
+     */
+    fun sessionExpired() {
+        if (_authStatus.value == AuthStatus.UNAUTHENTICATED) return
+        Log.w(TAG, "Session over (refresh rejected or login period ended) — forcing logout")
+        expiryJob?.cancel()
         tokenStore.clear()
         cachedUser = null
         _authStatus.value = AuthStatus.UNAUTHENTICATED

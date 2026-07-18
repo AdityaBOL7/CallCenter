@@ -125,8 +125,9 @@ fun SectionHeader(
     ) {
         Text(
             text = title,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             fontSize = 16.sp,
+            letterSpacing = (-0.2).sp,
             color = AppColor.ink900,
         )
         trailing?.invoke()
