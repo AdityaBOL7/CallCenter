@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class RootViewModel @Inject constructor(
-    private val authRepository: AuthRepository,
+    authRepository: AuthRepository,
     private val appPrefs: AppPreferences,
     incomingCalls: IncomingCallCoordinator,
     private val leadsRepo: com.example.callcenter.data.repository.LeadsRepository,
@@ -32,10 +32,6 @@ class RootViewModel @Inject constructor(
      * independent — one failing must not stop the others.
      */
     fun refreshOnForeground() {
-        // First: if the login period ended while the app was backgrounded, log
-        // out NOW (routes to Login) instead of refreshing a dead session. Also
-        // re-arms the countdown (coroutine timers can lag across deep sleep).
-        authRepository.enforceSessionExpiry()
         if (authStatus.value != com.example.callcenter.domain.model.AuthStatus.AUTHENTICATED) return
         viewModelScope.launch { leadsRepo.refresh() }
         viewModelScope.launch { callbacksRepo.refresh() }

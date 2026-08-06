@@ -99,21 +99,15 @@ class SettingsViewModel @Inject constructor(
         appPrefs.setRecordingFolderUri(uri)
     }
 
-    /** Persist the outgoing message immediately so it can't be lost by not tapping Save. */
-    fun setOutgoingMessage(message: String) = viewModelScope.launch {
-        appPrefs.setOutgoingMessage(message)
-    }
-
     /** Set the default WhatsApp target ("whatsapp" | "business"), persisted immediately. */
     fun setWhatsappTarget(target: String) = viewModelScope.launch {
         appPrefs.setWhatsappTarget(target)
     }
 
     /** Commit the editable fields on Save, then re-arm reminders with the new timing. */
-    fun save(callDelaySeconds: Int, followUpTimingMinutes: Int, outgoingMessage: String) = viewModelScope.launch {
+    fun save(callDelaySeconds: Int, followUpTimingMinutes: Int) = viewModelScope.launch {
         appPrefs.setCallDelaySeconds(callDelaySeconds)
         appPrefs.setFollowUpTimingMinutes(followUpTimingMinutes)
-        appPrefs.setOutgoingMessage(outgoingMessage)
         reminderScheduler.rescheduleAll(callbacksRepo.snapshot(), followUpTimingMinutes)
         // Diagnostic: read back straight from disk right after writing, so logcat
         // proves whether the values PERSISTED (storage OK → any blanking is a
@@ -121,9 +115,9 @@ class SettingsViewModel @Inject constructor(
         val readBack = appPrefs.current()
         android.util.Log.d(
             "Bol7Settings",
-            "SAVED delay=$callDelaySeconds timing=$followUpTimingMinutes msg='$outgoingMessage' " +
+            "SAVED delay=$callDelaySeconds timing=$followUpTimingMinutes " +
                 "→ DISK NOW: delay=${readBack.callDelaySeconds} timing=${readBack.followUpTimingMinutes} " +
-                "msg='${readBack.outgoingMessage}' folder='${readBack.recordingFolderUri}' " +
+                "folder='${readBack.recordingFolderUri}' " +
                 "whatsapp='${readBack.whatsappTarget}'",
         )
     }
@@ -152,7 +146,6 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
     var callDelay by rememberSaveable { mutableStateOf("5") }
     var timingMinutes by rememberSaveable { mutableIntStateOf(5) }
     var folderUri by rememberSaveable(stateSaver = UriSaver) { mutableStateOf<Uri?>(null) }
-    var outgoingMessage by rememberSaveable { mutableStateOf("") }
     var whatsappTarget by rememberSaveable { mutableStateOf("whatsapp") }
     var seeded by remember { mutableStateOf(false) }
     LaunchedEffect(prefs) {
@@ -162,7 +155,6 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             callDelay = loaded.callDelaySeconds.toString()
             timingMinutes = loaded.followUpTimingMinutes
             folderUri = loaded.recordingFolderUri.takeIf { it.isNotBlank() }?.let(Uri::parse)
-            outgoingMessage = loaded.outgoingMessage
             whatsappTarget = loaded.whatsappTarget
             seeded = true
         }
@@ -226,21 +218,6 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                         onBrowse = { pickFolder.launch(null) },
                     )
 
-                    Spacer(Modifier.height(16.dp))
-                    FieldLabel("Outgoing message (after-call SMS)")
-                    OutlinedTextField(
-                        value = outgoingMessage,
-                        onValueChange = {
-                            outgoingMessage = it
-                            // Persist immediately so the message is saved even if the
-                            // agent leaves Settings without tapping Save.
-                            viewModel.setOutgoingMessage(it)
-                        },
-                        placeholder = { Text("e.g. Thanks for your time!", color = AppColor.ink400) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = filledFieldColors(),
-                    )
                 }
 
                 // ---- Card 1b: Default WhatsApp app ----
@@ -297,7 +274,7 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                     onClick = {
                         val delay = (callDelay.toIntOrNull() ?: 5).coerceIn(5, 10)
                         callDelay = delay.toString()
-                        viewModel.save(delay, timingMinutes, outgoingMessage.trim())
+                        viewModel.save(delay, timingMinutes)
                         android.widget.Toast.makeText(
                             context, "Settings saved", android.widget.Toast.LENGTH_SHORT,
                         ).show()

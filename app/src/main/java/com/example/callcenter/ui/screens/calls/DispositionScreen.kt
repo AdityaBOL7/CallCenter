@@ -42,8 +42,6 @@ import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material.icons.outlined.Whatsapp
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -55,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -70,7 +67,6 @@ import com.example.callcenter.data.repository.CallbacksRepository
 import com.example.callcenter.data.repository.CallsRepository
 import com.example.callcenter.data.repository.DispositionsRepository
 import com.example.callcenter.data.repository.LeadsRepository
-import com.example.callcenter.domain.model.AgentStatus
 import com.example.callcenter.domain.model.Disposition
 import com.example.callcenter.domain.model.DispositionCode
 import com.example.callcenter.ui.components.DateTimeField
@@ -119,10 +115,6 @@ class DispositionViewModel @Inject constructor(
     private val _lead = MutableStateFlow<com.example.callcenter.domain.model.Lead?>(null)
     val lead: StateFlow<com.example.callcenter.domain.model.Lead?> = _lead.asStateFlow()
 
-    // Default after-call SMS text from Settings (pre-fills the disposition field).
-    private val _outgoingMessage = MutableStateFlow("")
-    val outgoingMessage: StateFlow<String> = _outgoingMessage.asStateFlow()
-
     // Which WhatsApp app the quick-action opens ("whatsapp" | "business").
     private val _whatsappTarget = MutableStateFlow("whatsapp")
     val whatsappTarget: StateFlow<String> = _whatsappTarget.asStateFlow()
@@ -157,7 +149,6 @@ class DispositionViewModel @Inject constructor(
         viewModelScope.launch { dispositionsRepo.refresh() }
         viewModelScope.launch {
             val prefs = appPrefs.current()
-            _outgoingMessage.value = prefs.outgoingMessage
             _whatsappTarget.value = prefs.whatsappTarget
         }
         viewModelScope.launch { autoFindRecording() }
@@ -302,9 +293,9 @@ class DispositionViewModel @Inject constructor(
      */
     fun submit(
         leadId: Int, disposition: DispositionCode, note: String, callbackAt: LocalDateTime?,
-        recordingUri: Uri?, sendSms: Boolean, smsText: String,
+        recordingUri: Uri?,
         onDone: () -> Unit, onNextCall: (leadId: Int, callId: String, route: String) -> Unit,
-    ) = finalize(After.NEXT_OR_HOME, leadId, disposition, note, callbackAt, recordingUri, sendSms, smsText, onDone, onNextCall)
+    ) = finalize(After.NEXT_OR_HOME, leadId, disposition, note, callbackAt, recordingUri, onDone, onNextCall)
 
     /**
      * Submit the outcome, then immediately re-dial the SAME lead (for a
@@ -313,19 +304,20 @@ class DispositionViewModel @Inject constructor(
      */
     fun submitAndRedial(
         leadId: Int, disposition: DispositionCode, note: String, callbackAt: LocalDateTime?,
-        recordingUri: Uri?, sendSms: Boolean, smsText: String,
+        recordingUri: Uri?,
         onDone: () -> Unit, onNextCall: (leadId: Int, callId: String, route: String) -> Unit,
-    ) = finalize(After.REDIAL, leadId, disposition, note, callbackAt, recordingUri, sendSms, smsText, onDone, onNextCall)
+    ) = finalize(After.REDIAL, leadId, disposition, note, callbackAt, recordingUri, onDone, onNextCall)
 
     /**
-     * Submit the outcome, then put the agent on Break (status = BREAK) and go
-     * home — for when they need to step away (washroom / urgent task).
+     * Submit the outcome, stop any auto-dial loop, and go home — for when the
+     * agent needs to step away (washroom / urgent task). Their status is left
+     * untouched; going on Break is a manual choice from the home screen.
      */
     fun submitAndPause(
         leadId: Int, disposition: DispositionCode, note: String, callbackAt: LocalDateTime?,
-        recordingUri: Uri?, sendSms: Boolean, smsText: String,
+        recordingUri: Uri?,
         onDone: () -> Unit, onNextCall: (leadId: Int, callId: String, route: String) -> Unit,
-    ) = finalize(After.PAUSE, leadId, disposition, note, callbackAt, recordingUri, sendSms, smsText, onDone, onNextCall)
+    ) = finalize(After.PAUSE, leadId, disposition, note, callbackAt, recordingUri, onDone, onNextCall)
 
     private fun finalize(
         after: After,
@@ -334,8 +326,6 @@ class DispositionViewModel @Inject constructor(
         note: String,
         callbackAt: LocalDateTime?,
         recordingUri: Uri?,
-        sendSms: Boolean,
-        smsText: String,
         onDone: () -> Unit,
         onNextCall: (leadId: Int, callId: String, route: String) -> Unit,
     ) {
@@ -411,14 +401,6 @@ class DispositionViewModel @Inject constructor(
                 callsRepo.clearActive()
                 appPrefs.clearPendingDisposition()
 
-                // Optional after-call SMS. Best-effort: never aborts the disposition.
-                if (sendSms && smsText.isNotBlank()) {
-                    val lead = leadsRepo.byId(targetLeadId)
-                    if (lead != null && lead.phone.isNotBlank()) {
-                        com.example.callcenter.telephony.SmsSender.send(appContext, lead.phone, smsText)
-                    }
-                }
-
                 when (after) {
                     // Retry the SAME lead: stop the auto-dial loop (this is a
                     // deliberate one-off), place a fresh call, go to the call screen.
@@ -434,11 +416,10 @@ class DispositionViewModel @Inject constructor(
                         // Can't redial (lead gone or not Available) → just go home.
                         onDone()
                     }
-                    // Step away: stop any loop, flip to Break INSTANTLY (server
-                    // PATCH runs in the background), go home without waiting.
+                    // Step away: stop any loop and go home. The agent's status
+                    // is deliberately NOT changed — they stay as they are.
                     After.PAUSE -> {
                         callsRepo.stopAutoDial()
-                        agentRepo.setStatusOptimistic(AgentStatus.BREAK)
                         onDone()
                     }
                     // Normal submit: advance the auto-dial queue if one's running.
@@ -487,7 +468,6 @@ fun DispositionScreen(
     val error by viewModel.error.collectAsState()
     val lead by viewModel.lead.collectAsState()
     val incomingInfo by viewModel.incoming.collectAsState()
-    val defaultSms by viewModel.outgoingMessage.collectAsState()
     val whatsappTarget by viewModel.whatsappTarget.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -517,26 +497,6 @@ fun DispositionScreen(
     var followUpAt by rememberSaveable(stateSaver = LocalDateTimeSaver) { mutableStateOf<LocalDateTime?>(null) }
     var recordingUri by rememberSaveable(stateSaver = UriSaver) { mutableStateOf<Uri?>(null) }
     var recordingName by rememberSaveable { mutableStateOf<String?>(null) }
-
-    // After-call SMS: toggle + editable text. Text seeds from the Settings default
-    // once it actually loads (agents can then tweak it per call). Only sent on
-    // submit when the toggle is on.
-    var sendSms by rememberSaveable { mutableStateOf(false) }
-    var smsText by rememberSaveable { mutableStateOf("") }
-    var smsSeeded by rememberSaveable { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(defaultSms) {
-        // The Settings message loads async (starts ""). Only seed the field once a
-        // real value arrives and the agent hasn't typed their own yet — otherwise
-        // the initial empty value would "seed" a blank and block the real one.
-        if (!smsSeeded && defaultSms.isNotBlank()) {
-            if (smsText.isBlank()) smsText = defaultSms
-            smsSeeded = true
-        }
-    }
-    // Ask for SEND_SMS when the agent switches the toggle on.
-    val smsPermission = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
-    ) { granted -> sendSms = granted }
 
     // Auto-attach the recording found in the Settings folder (if the agent hasn't
     // already picked one manually). They can still Browse to override.
@@ -659,20 +619,6 @@ fun DispositionScreen(
                     )
                 }
 
-                // After-call SMS: send the message on submit when enabled.
-                AfterCallMessage(
-                    enabled = sendSms,
-                    message = smsText,
-                    onToggle = { on ->
-                        if (on && !com.example.callcenter.telephony.SmsSender.canSend(context)) {
-                            smsPermission.launch(android.Manifest.permission.SEND_SMS)
-                        } else {
-                            sendSms = on
-                        }
-                    },
-                    onMessageChange = { smsText = it },
-                )
-
                 // Three identical actions, side by side: Redial · Submit · Pause.
                 // All require a disposition; disabled + dimmed while submitting.
                 // In incoming mode they also wait for the held call to load — it
@@ -694,7 +640,7 @@ fun DispositionScreen(
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = {
                             val d = disposition ?: return@ActionButton
-                            viewModel.submitAndRedial(leadId, d, note, followUpAt, recordingUri, sendSms, smsText, onDone, onNextCall)
+                            viewModel.submitAndRedial(leadId, d, note, followUpAt, recordingUri, onDone, onNextCall)
                         },
                     )
                     ActionButton(
@@ -705,7 +651,7 @@ fun DispositionScreen(
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = {
                             val d = disposition ?: return@ActionButton
-                            viewModel.submit(leadId, d, note, followUpAt, recordingUri, sendSms, smsText, onDone, onNextCall)
+                            viewModel.submit(leadId, d, note, followUpAt, recordingUri, onDone, onNextCall)
                         },
                     )
                     ActionButton(
@@ -716,7 +662,7 @@ fun DispositionScreen(
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         onClick = {
                             val d = disposition ?: return@ActionButton
-                            viewModel.submitAndPause(leadId, d, note, followUpAt, recordingUri, sendSms, smsText, onDone, onNextCall)
+                            viewModel.submitAndPause(leadId, d, note, followUpAt, recordingUri, onDone, onNextCall)
                         },
                     )
                 }
@@ -884,75 +830,6 @@ private fun QuickActionButton(
         Spacer(Modifier.size(6.dp))
         Text(label, color = AppColor.ink700, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
     }
-}
-
-/** "Message after call complete" toggle + editable message text, as a card. */
-@Composable
-private fun AfterCallMessage(
-    enabled: Boolean,
-    message: String,
-    onToggle: (Boolean) -> Unit,
-    onMessageChange: (String) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(2.dp, RoundedCornerShape(16.dp))
-            .background(AppColor.surface)
-            .border(1.dp, AppColor.ink200, RoundedCornerShape(16.dp))
-            .padding(14.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "Message after call complete",
-                    color = AppColor.ink900,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                )
-                Text(
-                    "Auto-send an SMS to this lead on submit",
-                    color = AppColor.ink500,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-            GreenSwitch(checked = enabled, onCheckedChange = onToggle)
-        }
-        if (enabled) {
-            Spacer(Modifier.size(10.dp))
-            OutlinedTextField(
-                value = message,
-                onValueChange = onMessageChange,
-                placeholder = { Text("Message to send…", color = AppColor.ink400) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = AppColor.surfaceAlt,
-                    unfocusedContainerColor = AppColor.surfaceAlt,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedBorderColor = Brand500,
-                ),
-            )
-        }
-    }
-}
-
-/** M3 switch with the app's green "on" state and a slightly compact feel. */
-@Composable
-private fun GreenSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Switch(
-        checked = checked,
-        onCheckedChange = onCheckedChange,
-        colors = SwitchDefaults.colors(
-            checkedTrackColor = Success,
-            checkedThumbColor = Color.White,
-        ),
-        modifier = Modifier.scale(0.85f),
-    )
 }
 
 /** White-filled text field colors (fields that sit directly on the page bg). */

@@ -9,7 +9,7 @@ plugins {
 
 android {
     namespace = "com.example.callcenter"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // Play Store app identity (permanent after first publish). The internal
@@ -17,9 +17,9 @@ android {
         // applicationId, and the namespace is invisible to users.
         applicationId = "com.bol7.dialeragent"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 3
-        versionName = "1.2"
+        targetSdk = 36
+        versionCode = 10
+        versionName = "1.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

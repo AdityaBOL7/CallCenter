@@ -26,8 +26,6 @@ data class UserPrefs(
     val recordingFolderUri: String = "",
     // How many minutes before a callback the local reminder fires (2/5/15/60).
     val followUpTimingMinutes: Int = 5,
-    // Default text for the after-call SMS (editable per-call on the disposition screen).
-    val outgoingMessage: String = "",
     // A disposition the agent still owes (call id + lead id). Set when the
     // disposition screen opens, cleared on submit. On relaunch we route back to
     // the disposition form so a call can't be abandoned by killing the app.
@@ -55,7 +53,6 @@ class AppPreferences @Inject constructor(private val context: Context) {
         val CALL_DELAY = intPreferencesKey("call_delay_seconds")
         val RECORDING_FOLDER = stringPreferencesKey("recording_folder_uri")
         val FOLLOWUP_TIMING = intPreferencesKey("followup_timing_minutes")
-        val OUTGOING_MESSAGE = stringPreferencesKey("outgoing_message")
         val PENDING_DISP_CALL = stringPreferencesKey("pending_disposition_call")
         val PENDING_DISP_LEAD = intPreferencesKey("pending_disposition_lead")
         val PENDING_INC_NUMBER = stringPreferencesKey("pending_incoming_number")
@@ -72,7 +69,6 @@ class AppPreferences @Inject constructor(private val context: Context) {
             callDelaySeconds = p[Keys.CALL_DELAY] ?: 5,
             recordingFolderUri = p[Keys.RECORDING_FOLDER] ?: "",
             followUpTimingMinutes = p[Keys.FOLLOWUP_TIMING] ?: 5,
-            outgoingMessage = p[Keys.OUTGOING_MESSAGE] ?: "",
             pendingDispositionCall = p[Keys.PENDING_DISP_CALL] ?: "",
             pendingDispositionLead = p[Keys.PENDING_DISP_LEAD] ?: 0,
             pendingIncomingNumber = p[Keys.PENDING_INC_NUMBER] ?: "",
@@ -107,11 +103,6 @@ class AppPreferences @Inject constructor(private val context: Context) {
     /** Minutes-before for the callback reminder (2/5/15/60). */
     suspend fun setFollowUpTimingMinutes(minutes: Int) {
         context.dataStore.edit { it[Keys.FOLLOWUP_TIMING] = minutes }
-    }
-
-    /** Default text for the after-call SMS. */
-    suspend fun setOutgoingMessage(message: String) {
-        context.dataStore.edit { it[Keys.OUTGOING_MESSAGE] = message }
     }
 
     /** Which WhatsApp app the quick-action opens ("whatsapp" | "business"). */

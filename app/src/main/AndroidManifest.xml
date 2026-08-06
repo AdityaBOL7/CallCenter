@@ -18,11 +18,15 @@
     <!-- Local callback reminders (no FCM): post notifications, exact alarms, and
          re-arm alarms after a reboot. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Exact follow-up reminders. USE_EXACT_ALARM was removed 2026-07-21: Play
+         only permits it for alarm-clock/calendar apps (release blocked on the
+         "Exact alarms" form). SCHEDULE_EXACT_ALARM is the general-purpose
+         variant: pre-granted on Android 12-13, but on 14+ the user must enable
+         "Alarms & reminders" in special app access — ReminderScheduler already
+         checks canScheduleExactAlarms() and falls back to an inexact alarm
+         (fires within a few minutes) when not granted. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Send the optional after-call SMS from the disposition screen. -->
-    <uses-permission android:name="android.permission.SEND_SMS" />
 
     <!-- Android 11+ package visibility: let us open WhatsApp / SMS / email apps. -->
     <queries>

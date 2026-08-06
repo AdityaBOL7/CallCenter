@@ -50,7 +50,7 @@ import com.example.callcenter.ui.theme.AppGradients
  * because the actual conversation runs in the phone's telephony stack, not here:
  *  - SIM: the carrier call lives in the phone's own dialer.
  *  - SIP: the server-side click-to-call originate (fired earlier in
- *         CallsRepository.initiate) calls THIS phone first (the agent leg),
+ *         CallsRepository. initiate) calls THIS phone first (the agent leg),
  *         then bridges the lead in.
  * SIM shows nothing (the device dialer takes over) and advances to disposition
  * when the carrier call ends. SIP shows a live waiting screen that mirrors the
@@ -176,7 +176,7 @@ private fun SipCallStateEffect(
 }
 
 /**
- * SIP click-to-call waiting screen. The originate already happened server-side,
+ * SIP click-to-call waiting screen. Theoriginate already happened server-side,
  * so this screen places no call — it mirrors the agent leg's real progress:
  * "calling your phone" → "your phone is ringing" → "in call" (true elapsed
  * timer from the actual pickup). There are NO call controls at all — accepting,

@@ -102,10 +102,6 @@ class TokenAuthenticator @Inject constructor(
                 null
             } else {
                 tokenStore.setTokens(access = access, refresh = newRefresh)
-                // A refresh extends the login period — persist the new expiry
-                // (if the response carries one) so the auto-logout countdown
-                // moves out instead of firing mid-valid-session.
-                authRepository.get().sessionExtended(body?.resolvedExpiry)
                 Log.d(TAG, "Access token refreshed (refresh rotated=${newRefresh != refresh})")
                 access
             }

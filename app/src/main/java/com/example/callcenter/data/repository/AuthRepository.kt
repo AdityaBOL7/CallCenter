@@ -15,7 +15,6 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import retrofit2.HttpException
 
 @Singleton
@@ -33,79 +32,6 @@ class AuthRepository @Inject constructor(
         }
     )
     val authStatus: StateFlow<AuthStatus> = _authStatus.asStateFlow()
-
-    // Owns the login-period countdown; survives ViewModels (singleton lifetime).
-    private val repoScope = kotlinx.coroutines.CoroutineScope(
-        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
-    )
-    private var expiryJob: kotlinx.coroutines.Job? = null
-
-    init {
-        // The server's login period (verify-otp's expiry_in_utc) is enforced by
-        // the APP, not just by requests failing: if it already lapsed while the
-        // app was closed, log out right now instead of showing a zombie session
-        // (stale "Agent" profile with every call 401ing). Otherwise arm the
-        // countdown so the logout happens the moment the period ends.
-        enforceSessionExpiry()
-    }
-
-    /**
-     * Force logout if the login period has ended; otherwise (re-)arm the
-     * countdown to fire exactly when it does. Cheap and idempotent — called at
-     * process start, after login, and on every app foreground.
-     */
-    fun enforceSessionExpiry() {
-        if (_authStatus.value != AuthStatus.AUTHENTICATED) return
-        val expiry = tokenStore.getSessionExpiryMillis() ?: return
-        val remaining = expiry - System.currentTimeMillis()
-        if (remaining <= 0) {
-            Log.w(TAG, "Login period ended (expiry passed) — logging out")
-            sessionExpired()
-            return
-        }
-        expiryJob?.cancel()
-        expiryJob = repoScope.launch {
-            kotlinx.coroutines.delay(remaining)
-            if (_authStatus.value == AuthStatus.AUTHENTICATED) {
-                Log.w(TAG, "Login period ended — automatic logout")
-                sessionExpired()
-            }
-        }
-    }
-
-    /**
-     * A successful token refresh extended the login period — persist the new
-     * end and re-arm the countdown. No-op when the refresh response carries no
-     * expiry (the previously stored one then stays authoritative).
-     */
-    fun sessionExtended(rawExpiry: String?) {
-        val millis = rawExpiry?.let(::parseExpiryMillis) ?: return
-        tokenStore.setSessionExpiry(millis)
-        enforceSessionExpiry()
-    }
-
-    /**
-     * Parse expiry_in_utc to epoch millis. The live server sends EPOCH SECONDS
-     * as a number (1784369981); ISO-8601 is kept as a fallback in case the
-     * format changes again.
-     */
-    private fun parseExpiryMillis(raw: String): Long? {
-        raw.toLongOrNull()?.let { n ->
-            // 10-digit epoch = seconds; 13-digit = already millis.
-            return if (n < 1_000_000_000_000L) n * 1000 else n
-        }
-        return try {
-            java.time.OffsetDateTime.parse(raw).toInstant().toEpochMilli()
-        } catch (_: Exception) {
-            try {
-                // No offset in the string — the backend documents it as UTC.
-                java.time.LocalDateTime.parse(raw).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
-            } catch (_: Exception) {
-                Log.w(TAG, "Unparseable expiry_in_utc: \"$raw\" — auto-logout disabled for this session")
-                null
-            }
-        }
-    }
 
     // The user profile returned at login (name/email/phone/role). Survives the
     // process and lets us show the real identity even if the dialer me/ 404s.
@@ -185,17 +111,8 @@ class AuthRepository @Inject constructor(
                 }
                 tokenStore.setTokens(access = access, refresh = refresh.orEmpty())
                 cachedUser = payload?.user
-                // Enforce the server's login period: store when it ends and arm
-                // the auto-logout countdown (enforceSessionExpiry below).
-                payload?.resolvedExpiry?.let { raw ->
-                    parseExpiryMillis(raw)?.let { millis ->
-                        tokenStore.setSessionExpiry(millis)
-                        Log.d(TAG, "login period ends at $raw")
-                    }
-                }
                 Log.d(TAG, "login user: ${payload?.user?.fullName} (${payload?.user?.role})")
                 _authStatus.value = AuthStatus.AUTHENTICATED
-                enforceSessionExpiry()
                 Result.success(Unit)
             }
         } catch (e: IOException) {
@@ -210,7 +127,6 @@ class AuthRepository @Inject constructor(
     }
 
     fun logout() {
-        expiryJob?.cancel()
         tokenStore.clear()
         cachedUser = null
         _authStatus.value = AuthStatus.UNAUTHENTICATED
@@ -225,8 +141,7 @@ class AuthRepository @Inject constructor(
      */
     fun sessionExpired() {
         if (_authStatus.value == AuthStatus.UNAUTHENTICATED) return
-        Log.w(TAG, "Session over (refresh rejected or login period ended) — forcing logout")
-        expiryJob?.cancel()
+        Log.w(TAG, "Refresh token rejected — forcing logout")
         tokenStore.clear()
         cachedUser = null
         _authStatus.value = AuthStatus.UNAUTHENTICATED

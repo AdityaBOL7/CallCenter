@@ -47,7 +47,6 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
     // Synchronous read cache. Volatile so interceptor threads see writes.
     @Volatile private var cachedAccess: String? = null
     @Volatile private var cachedRefresh: String? = null
-    @Volatile private var cachedExpiryMillis: Long? = null
     @Volatile private var loaded = false
 
     /**
@@ -64,7 +63,6 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
             if (!loaded) {
                 cachedAccess = prefs[KEY_ACCESS]
                 cachedRefresh = prefs[KEY_REFRESH]
-                cachedExpiryMillis = prefs[KEY_EXPIRY]?.toLongOrNull()
                 loaded = true
             }
         }
@@ -87,7 +85,6 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
             }
             cachedAccess = prefs[KEY_ACCESS]
             cachedRefresh = prefs[KEY_REFRESH]
-            cachedExpiryMillis = prefs[KEY_EXPIRY]?.toLongOrNull()
             loaded = true
         }
     }
@@ -116,22 +113,9 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
         }
     }
 
-    /** Epoch millis when the login period ends, or null if the server never said. */
-    fun getSessionExpiryMillis(): Long? {
-        ensureLoaded()
-        return cachedExpiryMillis
-    }
-
-    /** Persist the end of the login period (from verify-otp's expiry_in_utc). */
-    fun setSessionExpiry(epochMillis: Long) {
-        cachedExpiryMillis = epochMillis
-        ioScope.launch { dataStore.edit { it[KEY_EXPIRY] = epochMillis.toString() } }
-    }
-
     fun clear() {
         cachedAccess = null
         cachedRefresh = null
-        cachedExpiryMillis = null
         loaded = true
         ioScope.launch { dataStore.edit { it.clear() } }
     }
@@ -139,7 +123,6 @@ class SecureTokenStore @Inject constructor(private val context: Context) {
     companion object {
         private val KEY_ACCESS = stringPreferencesKey("access_token")
         private val KEY_REFRESH = stringPreferencesKey("refresh_token")
-        private val KEY_EXPIRY = stringPreferencesKey("session_expiry_millis")
     }
 }
 

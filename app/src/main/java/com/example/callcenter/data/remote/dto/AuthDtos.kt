@@ -38,11 +38,12 @@ data class VerifyOtpResponse(
     val refresh: String? = null,
     @SerialName("access_token") val accessToken: String? = null,
     @SerialName("refresh_token") val refreshToken: String? = null,
-    // When the login period ends. The server sends a NUMBER (epoch seconds:
-    // 1784369981) — typing this String broke login outright (JsonDecodingException
-    // on the whole response, 2026-07-18). JsonPrimitive accepts number OR string.
-    // The app enforces this moment: session force-logs-out when it passes.
-    @SerialName("expiry_in_utc") val expiryInUtc: kotlinx.serialization.json.JsonPrimitive? = null,
+    // NOTE: the response also carries `expiry_in_utc` (a NUMBER — epoch
+    // seconds). It is deliberately NOT modelled: capturing it once broke login
+    // (typed String → JsonDecodingException on the whole body, 2026-07-18) and
+    // the app-side expiry enforcement built on it was reverted on 2026-07-20 —
+    // session lifetime is the backend's job (refresh rejection → logout).
+    // ignoreUnknownKeys skips the field safely whatever its type.
     val data: TokenData? = null,
     val detail: String? = null,
 ) {
@@ -52,7 +53,6 @@ data class VerifyOtpResponse(
         val refresh: String? = null,
         @SerialName("access_token") val accessToken: String? = null,
         @SerialName("refresh_token") val refreshToken: String? = null,
-        @SerialName("expiry_in_utc") val expiryInUtc: kotlinx.serialization.json.JsonPrimitive? = null,
         val user: AuthUser? = null,
     )
 
@@ -78,9 +78,6 @@ data class VerifyOtpResponse(
     val resolvedRefresh: String?
         get() = refresh ?: refreshToken ?: data?.refresh ?: data?.refreshToken
 
-    val resolvedExpiry: String?
-        get() = (expiryInUtc ?: data?.expiryInUtc)?.content
-
     val user: AuthUser?
         get() = data?.user
 }
@@ -102,8 +99,6 @@ data class RefreshResponse(
     @SerialName("access_token") val accessToken: String? = null,
     val refresh: String? = null,
     @SerialName("refresh_token") val refreshToken: String? = null,
-    // Same number-or-string tolerance as VerifyOtpResponse.expiryInUtc.
-    @SerialName("expiry_in_utc") val expiryInUtc: kotlinx.serialization.json.JsonPrimitive? = null,
     val data: TokenData? = null,
 ) {
     @Serializable
@@ -112,7 +107,6 @@ data class RefreshResponse(
         @SerialName("access_token") val accessToken: String? = null,
         val refresh: String? = null,
         @SerialName("refresh_token") val refreshToken: String? = null,
-        @SerialName("expiry_in_utc") val expiryInUtc: kotlinx.serialization.json.JsonPrimitive? = null,
     )
 
     val resolvedAccess: String?
@@ -120,7 +114,4 @@ data class RefreshResponse(
 
     val resolvedRefresh: String?
         get() = refresh ?: refreshToken ?: data?.refresh ?: data?.refreshToken
-
-    val resolvedExpiry: String?
-        get() = (expiryInUtc ?: data?.expiryInUtc)?.content
 }
