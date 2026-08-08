@@ -410,6 +410,15 @@ private fun SimDialLauncher(
         }
     }
 
+    // Back must not abandon the call. initiate() already marked it open, and this
+    // screen's only exit was the auto-advance once the carrier call ends — so a
+    // plain pop (easy to hit on the blank hand-off screen when the dialer is slow
+    // to take over: dual-SIM chooser, OEM delay) orphaned the call: every later
+    // dial answered "Finish the current call's outcome before starting a new one"
+    // with no screen left to finish it on. Back now wraps up to disposition,
+    // exactly like the SIP screen and the auto-advance do.
+    androidx.activity.compose.BackHandler { proceedOnce() }
+
     fun fireDial() {
         val placed = PhoneCaller.call(context, phone)
         if (placed) {

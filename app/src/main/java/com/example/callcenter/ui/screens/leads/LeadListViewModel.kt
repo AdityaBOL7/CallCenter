@@ -151,7 +151,7 @@ class LeadListViewModel @Inject constructor(
         onCall: (leadId: Int, callId: String, route: String) -> Unit,
         onEmpty: () -> Unit,
         onNotAvailable: () -> Unit,
-        onBlocked: () -> Unit = {},
+        onBlocked: (callId: String, leadId: Int) -> Unit = { _, _ -> },
     ) {
         viewModelScope.launch {
             _startingAutoDial.value = true
@@ -167,10 +167,13 @@ class LeadListViewModel @Inject constructor(
                 return@launch
             }
             // Block starting a new dialing session while a previous call is still
-            // un-dispositioned (forces wrapping up the current call first).
-            if (callsRepo.hasOpenCall()) {
+            // un-dispositioned (forces wrapping up the current call first) — and
+            // hand back that call so the screen can take the agent straight to its
+            // outcome form instead of leaving them stuck behind the refusal.
+            val openCall = callsRepo.openCall()
+            if (openCall != null) {
                 _startingAutoDial.value = false
-                onBlocked()
+                onBlocked(openCall.id, openCall.leadId)
                 return@launch
             }
             val route = agent.callMode

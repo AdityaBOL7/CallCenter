@@ -112,7 +112,7 @@ class CallbackListViewModel @Inject constructor(
         callback: Callback,
         onCall: (leadId: Int, callId: String, route: String) -> Unit,
         onNotAvailable: () -> Unit = {},
-        onBlocked: () -> Unit = {},
+        onBlocked: (callId: String, leadId: Int) -> Unit = { _, _ -> },
     ) {
         viewModelScope.launch {
             val lead = leadsRepo.byId(callback.leadId) ?: return@launch
@@ -122,9 +122,11 @@ class CallbackListViewModel @Inject constructor(
                 onNotAvailable()
                 return@launch
             }
-            // Block a new call while a previous one is still un-dispositioned.
-            if (callsRepo.hasOpenCall()) {
-                onBlocked()
+            // Block a new call while a previous one is still un-dispositioned, and
+            // hand that call back so the screen can route to its outcome form.
+            val openCall = callsRepo.openCall()
+            if (openCall != null) {
+                onBlocked(openCall.id, openCall.leadId)
                 return@launch
             }
             val route = agentRepo.agent.value?.callMode ?: CallRouteType.SIP
@@ -139,6 +141,8 @@ class CallbackListViewModel @Inject constructor(
 fun CallbackListScreen(
     onSchedule: (Int) -> Unit,
     onCall: (leadId: Int, callId: String, route: String) -> Unit,
+    // Where a refused dial goes: the outcome form of the call that's still open.
+    onResumeDisposition: (callId: String, leadId: Int) -> Unit = { _, _ -> },
     viewModel: CallbackListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -200,12 +204,15 @@ fun CallbackListScreen(
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
                                     },
-                                    onBlocked = {
+                                    // Refusing alone stranded the agent — take them
+                                    // to the outcome still owed instead.
+                                    onBlocked = { openCallId, openLeadId ->
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Finish the current call's outcome before starting a new one.",
+                                            "Finish the current call's outcome first.",
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
+                                        onResumeDisposition(openCallId, openLeadId)
                                     },
                                 )
                             },

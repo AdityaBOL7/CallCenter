@@ -93,7 +93,7 @@ class LeadDetailViewModel @Inject constructor(
     fun startCall(
         onCall: (callId: String, route: String) -> Unit,
         onNotAvailable: () -> Unit = {},
-        onBlocked: () -> Unit = {},
+        onBlocked: (callId: String, leadId: Int) -> Unit = { _, _ -> },
     ) {
         viewModelScope.launch {
             val lead = _state.value.lead ?: return@launch
@@ -103,9 +103,11 @@ class LeadDetailViewModel @Inject constructor(
                 onNotAvailable()
                 return@launch
             }
-            // Block a new call while a previous one is still un-dispositioned.
-            if (callsRepo.hasOpenCall()) {
-                onBlocked()
+            // Block a new call while a previous one is still un-dispositioned, and
+            // hand that call back so the screen can route to its outcome form.
+            val openCall = callsRepo.openCall()
+            if (openCall != null) {
+                onBlocked(openCall.id, openCall.leadId)
                 return@launch
             }
             val route = agentRepo.agent.value?.callMode ?: CallRouteType.SIP
@@ -121,6 +123,8 @@ fun LeadDetailScreen(
     onBack: () -> Unit,
     onCall: (callId: String, route: String) -> Unit,
     onScheduleCallback: () -> Unit,
+    // Where a refused dial goes: the outcome form of the call that's still open.
+    onResumeDisposition: (callId: String, leadId: Int) -> Unit = { _, _ -> },
     viewModel: LeadDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -232,12 +236,15 @@ fun LeadDetailScreen(
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
                                     },
-                                    onBlocked = {
+                                    // Refusing alone stranded the agent — take them
+                                    // to the outcome still owed instead.
+                                    onBlocked = { openCallId, openLeadId ->
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Finish the current call's outcome before starting a new one.",
+                                            "Finish the current call's outcome first.",
                                             android.widget.Toast.LENGTH_SHORT,
                                         ).show()
+                                        onResumeDisposition(openCallId, openLeadId)
                                     },
                                 )
                             },

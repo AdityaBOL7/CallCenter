@@ -26,9 +26,11 @@ data class UserPrefs(
     val recordingFolderUri: String = "",
     // How many minutes before a callback the local reminder fires (2/5/15/60).
     val followUpTimingMinutes: Int = 5,
-    // A disposition the agent still owes (call id + lead id). Set when the
-    // disposition screen opens, cleared on submit. On relaunch we route back to
-    // the disposition form so a call can't be abandoned by killing the app.
+    // A disposition the agent still owes (call id + lead id). Written the moment
+    // the call STARTS (CallsRepository.initiate) — not when the disposition screen
+    // opens — because a call abandoned before that screen ever composed is exactly
+    // the one that would escape. Cleared only on submit. On relaunch we route back
+    // to the disposition form so a call can't be abandoned by killing the app.
     val pendingDispositionCall: String = "",
     val pendingDispositionLead: Int = 0,
     // An ANSWERED incoming SIM call whose outcome the agent still owes. Unlike an

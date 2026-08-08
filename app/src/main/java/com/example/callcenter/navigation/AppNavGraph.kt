@@ -184,6 +184,11 @@ fun AppNavGraph(rootViewModel: RootViewModel = hiltViewModel()) {
                 onScheduleCallback = {
                     rootNav.navigate(Dest.ScheduleCallback.build(id)) { launchSingleTop = true }
                 },
+                onResumeDisposition = { callId, openLeadId ->
+                    rootNav.navigate(Dest.Disposition.build(callId, openLeadId)) {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         composable(
@@ -316,6 +321,15 @@ private fun TabsNavHost(
                 onStartCall = { leadId, callId, route ->
                     rootNav.navigate(Dest.Call.build(callId, leadId, route)) { launchSingleTop = true }
                 },
+                // A dial refused because an outcome is still owed goes STRAIGHT to
+                // that outcome. Without this the agent could be permanently stuck:
+                // the open call lives in memory, its screen is gone, and nothing
+                // short of force-restarting the app cleared it.
+                onResumeDisposition = { callId, leadId ->
+                    rootNav.navigate(Dest.Disposition.build(callId, leadId)) {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
         composable(Dest.Callbacks.route) {
@@ -325,6 +339,11 @@ private fun TabsNavHost(
                 },
                 onCall = { leadId, callId, route ->
                     rootNav.navigate(Dest.Call.build(callId, leadId, route)) { launchSingleTop = true }
+                },
+                onResumeDisposition = { callId, leadId ->
+                    rootNav.navigate(Dest.Disposition.build(callId, leadId)) {
+                        launchSingleTop = true
+                    }
                 },
             )
         }

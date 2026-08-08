@@ -178,18 +178,26 @@ class DispositionViewModel @Inject constructor(
      */
     fun cancelIncoming(onDone: () -> Unit) {
         if (_submitting.value) return
+        val info = _incoming.value
+        if (info == null) {
+            // The call was already adopted — a submit got as far as creating the
+            // backend row and then failed (e.g. the recording upload). It's a real
+            // logged call now and its outcome IS owed, so the cross must not
+            // release the agent: that would leave the call open with no screen
+            // left to clear it from.
+            _error.value = "This call is already logged — pick an outcome to finish it."
+            return
+        }
         _submitting.value = true
         viewModelScope.launch {
             try {
-                _incoming.value?.let { info ->
-                    callsRepo.reportSimIncoming(
-                        fromNumber = info.number,
-                        status = "no_answer",
-                        startedAtIso = info.startedAtIso,
-                        durationSec = null,
-                        adopt = false,
-                    )
-                }
+                callsRepo.reportSimIncoming(
+                    fromNumber = info.number,
+                    status = "no_answer",
+                    startedAtIso = info.startedAtIso,
+                    durationSec = null,
+                    adopt = false,
+                )
                 appPrefs.clearPendingIncoming()
                 _incoming.value = null
                 com.example.callcenter.notifications.IncomingCallNotifications.cancel(appContext)

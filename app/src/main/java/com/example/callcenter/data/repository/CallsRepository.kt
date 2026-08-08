@@ -42,6 +42,7 @@ class CallsRepository @Inject constructor(
     private val dialerApi: DialerApi,
     private val json: Json,
     private val agentRepo: AgentRepository,
+    private val appPrefs: com.example.callcenter.data.prefs.AppPreferences,
     @ApplicationContext private val context: Context,
 ) {
 
@@ -56,13 +57,21 @@ class CallsRepository @Inject constructor(
     fun canCall(): Boolean = agentRepo.agent.value?.status == AgentStatus.AVAILABLE
 
     /**
-     * True while there's a call that hasn't been dispositioned yet. `_active` is set
-     * on [initiate] and only cleared by [clearActive] (which runs after the agent
+     * The call that hasn't been dispositioned yet, or null. `_active` is set on
+     * [initiate] and only cleared by [clearActive] (which runs after the agent
      * submits the disposition), so a non-null active call means the previous call is
      * still "open". Every manual call-start point checks this to block placing a new
      * call before the current one is wrapped up — no spam-dialing, no orphaned calls.
+     *
+     * Blocked callers use the returned call's id + leadId to send the agent BACK to
+     * its disposition form. That escape route is mandatory: an open call the agent
+     * can't reach is a dead end — every dial refused, with no screen left to clear
+     * it from (only a force-restart of the app did, since `_active` is in-memory).
      */
-    fun hasOpenCall(): Boolean = _active.value != null
+    fun openCall(): Call? = _active.value
+
+    /** @see openCall */
+    fun hasOpenCall(): Boolean = openCall() != null
 
     // Backend integer id of the active call, for PATCH/hangup. Null if start failed.
     private var activeCallId: Int? = null
@@ -206,7 +215,7 @@ class CallsRepository @Inject constructor(
             routeType = route,
             startedAt = LocalDateTime.now(),
         )
-        return try {
+        val started = try {
             val request = StartCallRequest(
                 leadId = lead.id,
                 toNumber = lead.phone.takeIf { it.isNotBlank() },
@@ -242,6 +251,14 @@ class CallsRepository @Inject constructor(
             val call = local.copy(id = dto.id?.toString() ?: local.id)
             _active.value = call
             call
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // The caller's scope died while the start POST was in flight (the agent
+            // backed out of the lead/list screen before it returned). The call never
+            // happened and no call screen will open for it, so it must NOT be marked
+            // open — the generic catch below would have latched `_active` to a local
+            // call and blocked every subsequent dial. Rethrow: this is cancellation,
+            // not a failure.
+            throw e
         } catch (e: Exception) {
             // Surface the backend's validation complaint (e.g. a 422's field
             // errors) directly in this tag — otherwise it only exists inside
@@ -254,6 +271,20 @@ class CallsRepository @Inject constructor(
             _active.value = local
             local
         }
+        // Persist the owed disposition the moment the call STARTS — not when the
+        // disposition screen first opens (markPending). A call abandoned before that
+        // screen ever composed (back on the SIM hand-off screen, app killed mid-call)
+        // was exactly the one that escaped: nothing was on disk, so relaunch went
+        // Home and the outcome was lost forever. From here on every launch routes
+        // back to the disposition form until submit clears this (splash routing in
+        // AppNavGraph). Best-effort: a failed write only weakens the relaunch guard,
+        // it must not fail the call that is already starting.
+        try {
+            appPrefs.setPendingDisposition(started.id, started.leadId)
+        } catch (e: Exception) {
+            Log.w(TAG, "pending-disposition persist failed — relaunch guard weakened", e)
+        }
+        return started
     }
 
     fun updateActive(call: Call) {

@@ -74,6 +74,8 @@ private enum class PickerKind { Status, Campaign, Sort }
 fun LeadListScreen(
     onLeadClick: (Int) -> Unit,
     onStartCall: (leadId: Int, callId: String, route: String) -> Unit = { _, _, _ -> },
+    // Where a refused dial goes: the outcome form of the call that's still open.
+    onResumeDisposition: (callId: String, leadId: Int) -> Unit = { _, _ -> },
     viewModel: LeadListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -183,8 +185,16 @@ fun LeadListScreen(
                         onNotAvailable = {
                             banner = "Set your status to Available to start calling."
                         },
-                        onBlocked = {
-                            banner = "Finish the current call's outcome before starting a new one."
+                        // Don't just refuse — the previous call's outcome is still
+                        // owed, so open it. A bare banner was a dead end whenever
+                        // that call's screen was already gone.
+                        onBlocked = { callId, leadId ->
+                            android.widget.Toast.makeText(
+                                context,
+                                "Finish the current call's outcome first.",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            onResumeDisposition(callId, leadId)
                         },
                     )
                 },
